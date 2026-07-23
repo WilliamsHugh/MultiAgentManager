@@ -65,62 +65,31 @@ class TaskQueue extends EventEmitter {
 
   /**
    * Thực thi một task
+   * 
+   * NOTE: Task KHÔNG được tự động spawn opencode CLI.
+   * Thay vào đó, task được đưa vào hàng đợi pending-manager
+   * để Buffy (manager AI) pick up, phân tích, và giao cho sub-agents.
+   * 
    * @param {Object} task - Task cần thực thi
    */
   async _executeTask(task) {
-    task.status = 'running';
-    task.startedAt = new Date();
-    this.running.set(task.id, task);
-    this.emit('task:started', task);
-
     try {
-      // Kiểm tra opencode có tồn tại không
-      if (!this._isToolAvailable('opencode')) {
-        // opencode không available -> đưa task về chờ manager (Buffy) xử lý
-        this.emit('task:log', task.id, {
-          level: 'warn',
-          message: 'opencode not found. Buffy (manager) will pick up this task.'
-        });
-        
-        // Giữ task ở trạng thái pending, đưa vào mảng chờ manager
-        task.status = 'pending';
-        
-        this.running.delete(task.id);
-        this._pendingManager = this._pendingManager || [];
-        this._pendingManager.push(task);
-        this.emit('task:awaiting-manager', task);
-        return;
-      }
+      // Log pending
+      this.emit('task:log', task.id, {
+        level: 'info',
+        message: `Task "${task.name}" is pending. Buffy (manager) will analyze and assign it.`
+      });
+
+      // Giữ task ở trạng thái pending, đưa vào mảng chờ manager
+      task.status = 'pending';
       
-      // Thực thi task (gọi opencode CLI)
-      const result = await this._runWorker(task);
-      
-      // Nếu task đã bị cancel, không emit events
-      if (this._cancelledIds.has(task.id)) {
-        this._cancelledIds.delete(task.id);
-        return;
-      }
-      
-      task.status = 'done';
-      task.completedAt = new Date();
-      task.result = result;
-      
-      this.running.delete(task.id);
-      this.completed.push(task);
-      this.emit('task:completed', task);
+      this._pendingManager = this._pendingManager || [];
+      this._pendingManager.push(task);
+      this.emit('task:awaiting-manager', task);
       
     } catch (error) {
-      // Nếu task đã bị cancel, không emit events
-      if (this._cancelledIds.has(task.id)) {
-        this._cancelledIds.delete(task.id);
-        return;
-      }
-      
       task.status = 'failed';
-      task.completedAt = new Date();
       task.error = error.message;
-      
-      this.running.delete(task.id);
       this.failed.push(task);
       this.emit('task:failed', task, error);
     }

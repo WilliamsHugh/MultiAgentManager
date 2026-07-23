@@ -139,6 +139,18 @@ taskQueue.on('task:failed', (task, error) => {
   io.emit('task:updated', task);
 });
 
+taskQueue.on('task:awaiting-manager', (task) => {
+  try {
+    // Giữ status 'pending' trong DB (không change)
+    // Nhưng emit event để frontend biết task đang chờ manager
+    console.log(`[manager] Task ${task.id} (${task.name}) awaiting manager assignment.`);
+  } catch (err) {
+    console.warn(`[task:awaiting-manager] Failed: ${err.message}`);
+  }
+  io.to(`task:${task.id}`).emit('task:awaiting-manager', task);
+  io.emit('task:updated', task);
+});
+
 // ─── Auth Routes ───
 
 app.post('/api/auth/register',

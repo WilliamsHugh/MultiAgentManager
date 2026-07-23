@@ -22,15 +22,17 @@ describe('TaskQueue', () => {
     assert.strictEqual(stats.total, 0);
   });
 
-  it('should add a task to the queue', () => {
+  it('should delegate tasks to manager (no auto-execution)', () => {
     const q = new TaskQueue({ maxConcurrent: 2 });
-    // Add 3 tasks - only 2 will start immediately, 1 stays queued
     q.addTask({ id: 'test-1', name: 'Test Task 1' });
     q.addTask({ id: 'test-2', name: 'Test Task 2' });
     q.addTask({ id: 'test-3', name: 'Test Task 3' });
+    // All tasks go to pending-manager, queue empties immediately
     const stats = q.getStats();
-    assert.strictEqual(stats.queueLength, 1);
-    assert.strictEqual(stats.total, 3);
+    assert.strictEqual(stats.queueLength, 0);
+    assert.strictEqual(stats.running, 0);
+    // pendingManager tracks tasks awaiting manager
+    assert.strictEqual(q._pendingManager.length, 3);
     q.cancelAll();
   });
 
@@ -46,41 +48,41 @@ describe('TaskQueue', () => {
     });
   });
 
-  it('should add multiple tasks at once', () => {
+  it('should add multiple tasks at once (all go to pending-manager)', () => {
     const q = new TaskQueue({ maxConcurrent: 2 });
     q.addTasks([
       { id: 'multi-1', name: 'Multi Task 1' },
       { id: 'multi-2', name: 'Multi Task 2' },
       { id: 'multi-3', name: 'Multi Task 3' }
     ]);
-    const stats = q.getStats();
-    assert.strictEqual(stats.total, 3);
+    // All 3 tasks are in pending-manager, not running
+    assert.strictEqual(q._pendingManager.length, 3);
     q.cancelAll();
   });
 
-  it('should respect maxConcurrent', () => {
+  it('should not auto-execute tasks (all await manager)', () => {
     const q = new TaskQueue({ maxConcurrent: 2 });
     q.addTasks([
       { id: 'concurrent-1', name: 'Concurrent Task 1' },
       { id: 'concurrent-2', name: 'Concurrent Task 2' },
       { id: 'concurrent-3', name: 'Concurrent Task 3' }
     ]);
-    assert.strictEqual(q.running.size, 2);
-    assert.strictEqual(q.queue.length, 1);
+    // Tasks are in pending-manager, NOT running
+    assert.strictEqual(q.running.size, 0);
+    assert.strictEqual(q.queue.length, 0);
+    assert.strictEqual(q._pendingManager.length, 3);
     q.cancelAll();
   });
 
-  it('should emit events in correct order', () => {
+  it('should emit events in correct order (pending-manager)', () => {
     return new Promise((resolve, reject) => {
       const q = new TaskQueue({ maxConcurrent: 1 });
       const events = [];
 
       q.on('task:queued', (task) => events.push('queued'));
-      q.on('task:started', (task) => events.push('started'));
-
-      q.on('task:failed', (task, error) => {
-        events.push('failed');
-        assert.deepStrictEqual(events, ['queued', 'started', 'failed']);
+      q.on('task:awaiting-manager', (task) => {
+        events.push('awaiting-manager');
+        assert.deepStrictEqual(events, ['queued', 'awaiting-manager']);
         resolve();
       });
 
@@ -121,26 +123,27 @@ describe('TaskQueue', () => {
     assert.strictEqual(stats.queueLength, 0);
   });
 
-  it('should handle worker failure gracefully (spawn not found)', async () => {
+  it('should delegate task to manager (no auto-execution)', async () => {
     const q = new TaskQueue({ maxConcurrent: 1 });
 
     const result = await new Promise((resolve) => {
-      q.on('task:failed', (task, error) => {
-        resolve({ task, error: error.message });
+      q.on('task:awaiting-manager', (task) => {
+        resolve({ task });
       });
       q.addTask({
-        id: 'fail-graceful',
-        name: 'Fail Graceful',
+        id: 'manager-delegate',
+        name: 'Manager Delegate',
         prompt: 'test',
         worktreePath: '/nonexistent/path'
       });
     });
 
     assert.ok(result.task);
-    assert.ok(result.error);
-    // Should still be trackable in stats
+    assert.strictEqual(result.task.status, 'pending');
+    // Task should NOT be in running or failed - it's pending manager
     const stats = q.getStats();
-    assert.strictEqual(stats.failed, 1);
+    assert.strictEqual(stats.running, 0);
+    assert.strictEqual(stats.failed, 0);
     q.cancelAll();
   });
 });
