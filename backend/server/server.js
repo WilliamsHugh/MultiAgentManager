@@ -43,27 +43,43 @@ app.use(express.static(path.join(__dirname, 'public')));
 
 // ─── Task Queue Event Forwarding ───
 taskQueue.on('task:log', (taskId, logEntry) => {
-  // Save to DB
-  db.addLog(taskId, logEntry.level, logEntry.message, 'worker');
-  // Emit to clients
+  try {
+    // Save to DB
+    db.addLog(taskId, logEntry.level, logEntry.message, 'worker');
+  } catch (err) {
+    console.warn(`[task:log] Failed to save log for task ${taskId}: ${err.message}`);
+  }
+  // Emit to clients (always emit even if DB fails - UI can still show logs)
   io.to(`task:${taskId}`).emit('log', { taskId, ...logEntry });
   io.emit('log:global', { taskId, ...logEntry });
 });
 
 taskQueue.on('task:started', (task) => {
-  db.updateTaskStatus(task.id, 'running');
+  try {
+    db.updateTaskStatus(task.id, 'running');
+  } catch (err) {
+    console.warn(`[task:started] Failed to update task ${task.id}: ${err.message}`);
+  }
   io.to(`task:${task.id}`).emit('task:started', task);
   io.emit('task:updated', task);
 });
 
 taskQueue.on('task:completed', (task) => {
-  db.updateTaskStatus(task.id, 'done', { exit_code: task.result?.exitCode });
+  try {
+    db.updateTaskStatus(task.id, 'done', { exit_code: task.result?.exitCode });
+  } catch (err) {
+    console.warn(`[task:completed] Failed to update task ${task.id}: ${err.message}`);
+  }
   io.to(`task:${task.id}`).emit('task:completed', task);
   io.emit('task:updated', task);
 });
 
 taskQueue.on('task:failed', (task, error) => {
-  db.updateTaskStatus(task.id, 'error', { exit_code: -1 });
+  try {
+    db.updateTaskStatus(task.id, 'error', { exit_code: -1 });
+  } catch (err) {
+    console.warn(`[task:failed] Failed to update task ${task.id}: ${err.message}`);
+  }
   io.to(`task:${task.id}`).emit('task:failed', { taskId: task.id, error: error.message });
   io.emit('task:updated', task);
 });
@@ -154,9 +170,15 @@ app.put('/api/tasks/:id/status', (req, res) => {
 });
 
 app.delete('/api/tasks/:id', (req, res) => {
-  // Cleanup task data
+  // Hủy task trong queue trước để tránh race condition
+  taskQueue.cancelTask(req.params.id);
+  
+  const result = db.deleteTask(req.params.id);
+  if (!result.success) {
+    return res.status(404).json({ error: result.error || 'Task not found' });
+  }
   io.emit('task:deleted', { id: req.params.id });
-  res.json({ success: true });
+  res.json(result);
 });
 
 // ─── Logs ───

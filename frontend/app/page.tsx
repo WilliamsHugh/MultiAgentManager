@@ -61,6 +61,7 @@ export default function Dashboard() {
   const [activeTaskId, setActiveTaskId] = useState<string | null>(null);
   const [showSidebar, setShowSidebar] = useState(true);
   const [notifications, setNotifications] = useState<Array<{id: string; message: string; type: string}>>([]);
+  const [connectionError, setConnectionError] = useState<string | null>(null);
 
   const logEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -135,7 +136,15 @@ export default function Dashboard() {
 
   // ─── Load existing tasks on mount ───
   useEffect(() => {
-    api.getTasks().then(setTasks).catch(console.error);
+    api.getTasks()
+      .then(tasks => {
+        setTasks(tasks);
+        setConnectionError(null);
+      })
+      .catch(err => {
+        console.error('Failed to load tasks:', err.message);
+        setConnectionError(err.message);
+      });
     fetchQueueStats();
     const interval = setInterval(fetchQueueStats, 5000);
     return () => clearInterval(interval);
@@ -385,28 +394,53 @@ export default function Dashboard() {
           ) : (
             <div className="h-full flex items-center justify-center">
               <div className="text-center max-w-lg">
-                <icons.terminal className="w-16 h-16 mx-auto mb-4 text-slate-700" />
-                <h2 className="text-xl font-semibold text-slate-500 mb-2">
-                  Multi-Agent Manager
-                </h2>
-                <p className="text-slate-600 text-sm max-w-md mx-auto">
-                  Submit a task to start. The system will use <span className="text-cyan-400">freebuff</span> to plan and{' '}
-                  <span className="text-emerald-400">opencode</span> workers to execute tasks in parallel using isolated Git Worktrees.
-                </p>
-                <div className="mt-6 flex gap-4 justify-center text-xs text-slate-600">
-                  <div className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-800/50 rounded-full">
-                    <span className={`w-2 h-2 rounded-full ${connected ? 'bg-emerald-400' : 'bg-red-400'}`} />
-                    {connected ? 'Connected' : 'Disconnected'}
-                  </div>
-                  <div className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-800/50 rounded-full">
-                    <icons.gitBranch className="w-3.5 h-3.5" />
-                    Git Worktree
-                  </div>
-                  <div className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-800/50 rounded-full">
-                    <icons.loader className="w-3.5 h-3.5" />
-                    Workers: 4
-                  </div>
-                </div>
+                {connectionError ? (
+                  <>
+                    <div className="w-16 h-16 mx-auto mb-4 rounded-full bg-red-500/10 flex items-center justify-center">
+                      <icons.x className="w-8 h-8 text-red-400" />
+                    </div>
+                    <h2 className="text-xl font-semibold text-red-400 mb-2">
+                      Connection Error
+                    </h2>
+                    <p className="text-slate-400 text-sm max-w-md mx-auto mb-4">
+                      {connectionError}
+                    </p>
+                    <button
+                      onClick={() => {
+                        setConnectionError(null);
+                        api.getTasks().then(setTasks).catch(err => setConnectionError(err.message));
+                      }}
+                      className="px-4 py-2 bg-slate-800 hover:bg-slate-700 rounded-lg text-sm text-slate-300 transition-colors"
+                    >
+                      Try Again
+                    </button>
+                  </>
+                ) : (
+                  <>
+                    <icons.terminal className="w-16 h-16 mx-auto mb-4 text-slate-700" />
+                    <h2 className="text-xl font-semibold text-slate-500 mb-2">
+                      Multi-Agent Manager
+                    </h2>
+                    <p className="text-slate-600 text-sm max-w-md mx-auto">
+                      Submit a task to start. The system will use <span className="text-cyan-400">freebuff</span> to plan and{' '}
+                      <span className="text-emerald-400">opencode</span> workers to execute tasks in parallel using isolated Git Worktrees.
+                    </p>
+                    <div className="mt-6 flex gap-4 justify-center text-xs text-slate-600">
+                      <div className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-800/50 rounded-full">
+                        <span className={`w-2 h-2 rounded-full ${connected ? 'bg-emerald-400' : 'bg-red-400'}`} />
+                        {connected ? 'Connected' : 'Disconnected'}
+                      </div>
+                      <div className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-800/50 rounded-full">
+                        <icons.gitBranch className="w-3.5 h-3.5" />
+                        Git Worktree
+                      </div>
+                      <div className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-800/50 rounded-full">
+                        <icons.loader className="w-3.5 h-3.5" />
+                        Workers: 4
+                      </div>
+                    </div>
+                  </>
+                )}
               </div>
             </div>
           )}

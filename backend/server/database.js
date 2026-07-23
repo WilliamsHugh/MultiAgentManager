@@ -206,6 +206,27 @@ class TaskDatabase {
     `).all(limit);
   }
 
+  // ─── Task Delete ───
+
+  deleteTask(id) {
+    // Sử dụng transaction để đảm bảo atomicity
+    const deleteOp = this.db.transaction(() => {
+      // Xóa logs liên quan trước
+      this.db.prepare('DELETE FROM logs WHERE task_id = ?').run(id);
+      // Xóa worktrees liên quan
+      this.db.prepare('DELETE FROM worktrees WHERE task_id = ?').run(id);
+      // Xóa task
+      const result = this.db.prepare('DELETE FROM tasks WHERE id = ?').run(id);
+      return result.changes;
+    });
+    
+    const changes = deleteOp(id);
+    if (changes === 0) {
+      return { success: false, error: 'Task not found' };
+    }
+    return { success: true };
+  }
+
   // ─── Worktree CRUD ───
 
   createWorktree(taskId, worktreePath, branchName) {

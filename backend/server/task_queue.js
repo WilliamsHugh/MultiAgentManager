@@ -15,6 +15,7 @@ class TaskQueue extends EventEmitter {
     this.running = new Map();
     this.completed = [];
     this.failed = [];
+    this._cancelledIds = new Set();
   }
 
   /**
@@ -63,6 +64,12 @@ class TaskQueue extends EventEmitter {
       // Thực thi task (gọi opencode CLI)
       const result = await this._runWorker(task);
       
+      // Nếu task đã bị cancel, không emit events
+      if (this._cancelledIds.has(task.id)) {
+        this._cancelledIds.delete(task.id);
+        return;
+      }
+      
       task.status = 'done';
       task.completedAt = new Date();
       task.result = result;
@@ -72,6 +79,12 @@ class TaskQueue extends EventEmitter {
       this.emit('task:completed', task);
       
     } catch (error) {
+      // Nếu task đã bị cancel, không emit events
+      if (this._cancelledIds.has(task.id)) {
+        this._cancelledIds.delete(task.id);
+        return;
+      }
+      
       task.status = 'failed';
       task.completedAt = new Date();
       task.error = error.message;
@@ -100,19 +113,26 @@ class TaskQueue extends EventEmitter {
       // Tạo prompt cho opencode
       const prompt = this._buildPrompt(task);
       
+      // Sử dụng spawn không có shell option để tránh DEP0190 deprecation
+      // 'opencode' phải có trong PATH để spawn tìm thấy
       const worker = spawn('opencode', [prompt], {
         cwd: task.worktreePath || process.cwd(),
-        shell: true,
         env: { ...process.env }
       });
 
+      // Guard function: kiểm tra nếu task đã bị cancel thì không emit events
+      // giúp tránh FOREIGN KEY constraint failed khi async worker chạy sau khi task đã bị xóa
+      const isNotCancelled = () => !this._cancelledIds.has(task.id);
+
       worker.stdout.on('data', (data) => {
+        if (!isNotCancelled()) return;
         const text = data.toString();
         output += text;
         this.emit('task:log', task.id, { level: 'info', message: text.trim() });
       });
 
       worker.stderr.on('data', (data) => {
+        if (!isNotCancelled()) return;
         const text = data.toString();
         this.emit('task:log', task.id, { level: 'error', message: text.trim() });
       });
@@ -166,6 +186,38 @@ Please implement this task completely and commit your changes with message: "[De
       failed: this.failed.length,
       total: this.queue.length + this.running.size + this.completed.length + this.failed.length
     };
+  }
+
+  /**
+   * Cancel a specific task by ID
+   * @param {string} id - Task ID to cancel
+   * @returns {boolean} True if task was found and cancelled
+   */
+  cancelTask(id) {
+    // Track cancelled ID để _executeTask không emit events khi async worker hoàn thành
+    this._cancelledIds.add(id);
+    
+    // Check running tasks
+    if (this.running.has(id)) {
+      const task = this.running.get(id);
+      this.running.delete(id);
+      this.failed.push({ ...task, status: 'cancelled' });
+      this.emit('task:cancelled', task);
+      return true;
+    }
+    
+    // Check queued tasks
+    const queueIndex = this.queue.findIndex(t => t.id === id);
+    if (queueIndex !== -1) {
+      const task = this.queue.splice(queueIndex, 1)[0];
+      this.failed.push({ ...task, status: 'cancelled' });
+      this.emit('task:cancelled', task);
+      return true;
+    }
+    
+    // Nếu task không còn trong queue/running, vẫn giữ cancelled ID
+    // để phòng trường hợp async worker hoàn thành sau
+    return false;
   }
 
   /**
