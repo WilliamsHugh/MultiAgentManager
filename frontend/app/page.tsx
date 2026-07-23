@@ -135,11 +135,16 @@ export default function Dashboard() {
     });
 
     socket.on('log:global', (data: LogEntry) => {
+      // Global terminal
       setGlobalLogs(prev => {
         const next = [...prev, data];
-        // Giới hạn 1000 dòng để tránh memory leak
         return next.length > 1000 ? next.slice(-1000) : next;
       });
+      // Per-task logs (khi click vào task cụ thể)
+      setLogs(prev => ({
+        ...prev,
+        [data.taskId]: [...(prev[data.taskId] || []), data],
+      }));
     });
 
     socket.on('tasks:submitted', ({ tasks: newTasks }: { tasks: Task[] }) => {
