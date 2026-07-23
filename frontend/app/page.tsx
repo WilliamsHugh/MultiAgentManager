@@ -256,33 +256,51 @@ export default function Dashboard() {
     }
   };
 
-  // ─── Window drag handlers ───
+  // ─── Window drag handlers (RAF-throttled) ───
   useEffect(() => {
+    let rafId: number | null = null;
+    let lastDx = 0;
+    let lastDy = 0;
+
     const handleMouseMove = (e: MouseEvent) => {
       if (!dragRef.current) return;
-      const dx = e.clientX - dragRef.current.startX;
-      const dy = e.clientY - dragRef.current.startY;
-      setTaskWindows(prev => prev.map(w =>
-        w.taskId === dragRef.current!.id
-          ? { ...w, x: dragRef.current!.origX + dx, y: dragRef.current!.origY + dy }
-          : w
-      ));
+      lastDx = e.clientX - dragRef.current.startX;
+      lastDy = e.clientY - dragRef.current.startY;
+      if (rafId === null) {
+        rafId = requestAnimationFrame(() => {
+          rafId = null;
+          const dr = dragRef.current;
+          if (!dr) return;
+          setTaskWindows(prev => prev.map(w =>
+            w.taskId === dr.id
+              ? { ...w, x: Math.max(0, dr.origX + lastDx), y: Math.max(0, dr.origY + lastDy) }
+              : w
+          ));
+        });
+      }
     };
     const handleMouseUp = () => {
       dragRef.current = null;
+      if (rafId !== null) {
+        cancelAnimationFrame(rafId);
+        rafId = null;
+      }
     };
     window.addEventListener('mousemove', handleMouseMove);
     window.addEventListener('mouseup', handleMouseUp);
     return () => {
       window.removeEventListener('mousemove', handleMouseMove);
       window.removeEventListener('mouseup', handleMouseUp);
+      if (rafId !== null) cancelAnimationFrame(rafId);
     };
   }, []);
 
   const bringToFront = (taskId: string) => {
     setNextZIndex(z => z + 1);
-    setTaskWindows(prev => prev.map(w =>
-      w.taskId === taskId ? { ...w, zIndex: nextZIndex + 1 } : w
+    setTaskWindows(prev => prev.map((w, _, arr) =>
+      w.taskId === taskId
+        ? { ...w, zIndex: Math.max(...arr.map(x => x.zIndex)) + 1 }
+        : w
     ));
     setActiveTaskId(taskId);
   };
