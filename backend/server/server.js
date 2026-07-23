@@ -14,6 +14,8 @@ const cors = require('cors');
 const http = require('http');
 const { Server } = require('socket.io');
 const path = require('path');
+const { body, query, param, validationResult } = require('express-validator');
+const rateLimit = require('express-rate-limit');
 const TaskDatabase = require('./database');
 const TaskQueue = require('./task_queue');
 
@@ -36,8 +38,49 @@ const io = new Server(server, {
 const db = new TaskDatabase(DB_PATH);
 const taskQueue = new TaskQueue({ maxConcurrent: 4 });
 
+// ─── Helpers ───
+const validate = (validations) => {
+  return async (req, res, next) => {
+    await Promise.all(validations.map(v => v.run(req)));
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      return res.status(400).json({ error: 'Validation failed', details: errors.array() });
+    }
+    next();
+  };
+};
+
+// Rate limiters
+const apiLimiter = rateLimit({
+  windowMs: 1 * 60 * 1000,
+  max: 100,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: 'Too many requests, please try again later' }
+});
+
+const submitLimiter = rateLimit({
+  windowMs: 1 * 60 * 1000,
+  max: 10,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: 'Too many task submissions, please slow down' }
+});
+
 // ─── Middleware ───
-app.use(cors({ origin: CORS_ORIGIN, credentials: true }));
+const allowedOrigins = process.env.CORS_ORIGIN 
+  ? process.env.CORS_ORIGIN.split(',').map(s => s.trim()) 
+  : ['http://localhost:3000'];
+
+app.use(cors({
+  origin: (origin, callback) => {
+    if (!origin) return callback(null, true);
+    if (allowedOrigins.includes(origin)) return callback(null, true);
+    callback(new Error(`Origin ${origin} not allowed by CORS`));
+  },
+  credentials: true
+}));
+app.use('/api/', apiLimiter);
 app.use(express.json());
 app.use(express.static(path.join(__dirname, 'public')));
 
@@ -97,10 +140,13 @@ app.get('/api/health', (req, res) => {
 
 // ─── Projects ───
 
-app.post('/api/projects', (req, res) => {
-  const { name } = req.body;
-  if (!name) return res.status(400).json({ error: 'Project name is required' });
-  
+app.post('/api/projects', 
+  submitLimiter,
+  validate([
+    body('name').trim().notEmpty().withMessage('Project name is required').isLength({ max: 100 })
+  ]),
+  (req, res) => {
+  const { name } = req.body;  
   const project = db.createProject(name);
   io.emit('project:created', project);
   res.status(201).json(project);
@@ -119,7 +165,15 @@ app.get('/api/projects/:id', (req, res) => {
 
 // ─── Tasks ───
 
-app.post('/api/tasks', (req, res) => {
+app.post('/api/tasks',
+  submitLimiter,
+  validate([
+    body('projectId').isUUID().withMessage('Invalid project ID'),
+    body('name').trim().notEmpty().isLength({ max: 200 }),
+    body('description').optional().trim().isLength({ max: 2000 }),
+    body('prompt').trim().notEmpty().isLength({ max: 10000 })
+  ]),
+  (req, res) => {
   const task = db.createTask(req.body);
   
   // Thêm vào task queue để thực thi
@@ -162,7 +216,13 @@ app.get('/api/tasks/:id', (req, res) => {
   res.json(task);
 });
 
-app.put('/api/tasks/:id/status', (req, res) => {
+app.put('/api/tasks/:id/status',
+  validate([
+    param('id').isUUID(),
+    body('status').isIn(['pending', 'running', 'done', 'error']),
+    body('exit_code').optional().isInt()
+  ]),
+  (req, res) => {
   const { status, exit_code } = req.body;
   const task = db.updateTaskStatus(req.params.id, status, { exit_code });
   io.emit('task:updated', task);
@@ -183,7 +243,12 @@ app.delete('/api/tasks/:id', (req, res) => {
 
 // ─── Logs ───
 
-app.get('/api/tasks/:id/logs', (req, res) => {
+app.get('/api/tasks/:id/logs',
+  validate([
+    query('limit').optional().isInt({ min: 1, max: 1000 }),
+    query('offset').optional().isInt({ min: 0 })
+  ]),
+  (req, res) => {
   const { limit = 100, offset = 0 } = req.query;
   const logs = db.getLogs(req.params.id, parseInt(limit), parseInt(offset));
   res.json(logs);
@@ -197,7 +262,13 @@ app.get('/api/logs/recent', (req, res) => {
 
 // ─── Worktrees ───
 
-app.post('/api/worktrees', (req, res) => {
+app.post('/api/worktrees',
+  validate([
+    body('task_id').isUUID(),
+    body('path').trim().notEmpty(),
+    body('branch_name').trim().notEmpty()
+  ]),
+  (req, res) => {
   const { task_id, path: worktreePath, branch_name } = req.body;
   const wt = db.createWorktree(task_id, worktreePath, branch_name);
   res.status(201).json(wt);
