@@ -4,22 +4,35 @@
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001/api';
 
+let authToken: string | null = null;
+
+export interface User {
+  id: string;
+  username: string;
+}
+
 async function fetchAPI<T>(
   endpoint: string,
   options: RequestInit = {}
 ): Promise<T> {
   let res: Response;
   
+  const headers: Record<string, string> = {
+    'Content-Type': 'application/json',
+    ...(options.headers as Record<string, string> || {}),
+  };
+
+  // Auto-attach auth token if available
+  if (authToken) {
+    headers['Authorization'] = `Bearer ${authToken}`;
+  }
+  
   try {
     res = await fetch(`${API_URL}${endpoint}`, {
-      headers: {
-        'Content-Type': 'application/json',
-        ...options.headers,
-      },
+      headers,
       ...options,
     });
   } catch (err) {
-    // Network error - server không reachable
     throw new Error(
       `Cannot connect to backend server. Make sure the server is running at ${API_URL}`
     );
@@ -75,8 +88,29 @@ export interface QueueStats {
 }
 
 export const api = {
+  setAuthToken(token: string) {
+    authToken = token;
+  },
+
+  clearAuthToken() {
+    authToken = null;
+  },
+
   // Health
-  health: () => fetchAPI<{ status: string }>('/health'),
+  health: () => fetchAPI<{ status: string; timestamp: string; uptime: number }>('/health'),
+
+  // Auth
+  login: (username: string, password: string) =>
+    fetchAPI<{ message: string; user: User; token: string }>('/auth/login', {
+      method: 'POST',
+      body: JSON.stringify({ username, password }),
+    }),
+
+  register: (username: string, password: string) =>
+    fetchAPI<{ message: string; user: User; token: string }>('/auth/register', {
+      method: 'POST',
+      body: JSON.stringify({ username, password }),
+    }),
 
   // Projects
   getProjects: () => fetchAPI<Project[]>('/projects'),
