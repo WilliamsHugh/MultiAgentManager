@@ -57,8 +57,19 @@ export default function Dashboard() {
   const [connected, setConnected] = useState(false);
   const [projectName, setProjectName] = useState('');
   const [queueStats, setQueueStats] = useState<QueueStats | null>(null);
+  // ─── Floating Window State ───
+  interface TaskWindow {
+    taskId: string;
+    x: number;
+    y: number;
+    width: number;
+    height: number;
+    zIndex: number;
+  }
+  const [taskWindows, setTaskWindows] = useState<TaskWindow[]>([]);
   const [activeTaskId, setActiveTaskId] = useState<string | null>(null);
-  const [openTabs, setOpenTabs] = useState<string[]>([]);
+  const [nextZIndex, setNextZIndex] = useState(10);
+  const dragRef = useRef<{ id: string; startX: number; startY: number; origX: number; origY: number } | null>(null);
   const [showSidebar, setShowSidebar] = useState(true);
   const [notifications, setNotifications] = useState<Array<{id: string; message: string; type: string}>>([]);
   const [connectionError, setConnectionError] = useState<string | null>(null);
@@ -80,6 +91,7 @@ export default function Dashboard() {
   const DEFAULT_FS_PATH = process.env.NEXT_PUBLIC_DEFAULT_FS_PATH || '';
 
   const logEndRef = useRef<HTMLDivElement>(null);
+  const wLogEndRefs = useRef<Record<string, HTMLDivElement | null>>({});
   const inputRef = useRef<HTMLInputElement>(null);
 
   // ─── Socket Connection ───
@@ -158,10 +170,14 @@ export default function Dashboard() {
     };
   }, []);
 
-  // ─── Auto-scroll logs (cả per-task và global) ───
+  // ─── Auto-scroll logs (global + floating windows) ───
   useEffect(() => {
     logEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [logs, globalLogs]);
+    // Scroll active floating window
+    if (activeTaskId && wLogEndRefs.current[activeTaskId]) {
+      wLogEndRefs.current[activeTaskId]?.scrollIntoView({ behavior: 'smooth' });
+    }
+  }, [logs, globalLogs, activeTaskId]);
 
   // ─── Load existing tasks on mount ───
   useEffect(() => {
@@ -240,8 +256,55 @@ export default function Dashboard() {
     }
   };
 
-  // ─── Selected task logs ───
-  const selectedLogs = activeTaskId ? logs[activeTaskId] || [] : [];
+  // ─── Window drag handlers ───
+  useEffect(() => {
+    const handleMouseMove = (e: MouseEvent) => {
+      if (!dragRef.current) return;
+      const dx = e.clientX - dragRef.current.startX;
+      const dy = e.clientY - dragRef.current.startY;
+      setTaskWindows(prev => prev.map(w =>
+        w.taskId === dragRef.current!.id
+          ? { ...w, x: dragRef.current!.origX + dx, y: dragRef.current!.origY + dy }
+          : w
+      ));
+    };
+    const handleMouseUp = () => {
+      dragRef.current = null;
+    };
+    window.addEventListener('mousemove', handleMouseMove);
+    window.addEventListener('mouseup', handleMouseUp);
+    return () => {
+      window.removeEventListener('mousemove', handleMouseMove);
+      window.removeEventListener('mouseup', handleMouseUp);
+    };
+  }, []);
+
+  const bringToFront = (taskId: string) => {
+    setNextZIndex(z => z + 1);
+    setTaskWindows(prev => prev.map(w =>
+      w.taskId === taskId ? { ...w, zIndex: nextZIndex + 1 } : w
+    ));
+    setActiveTaskId(taskId);
+  };
+
+  const closeWindow = (taskId: string) => {
+    setTaskWindows(prev => prev.filter(w => w.taskId !== taskId));
+    if (activeTaskId === taskId) {
+      setActiveTaskId(null);
+    }
+  };
+
+  const startDrag = (e: React.MouseEvent, taskId: string, win: TaskWindow) => {
+    e.preventDefault();
+    bringToFront(taskId);
+    dragRef.current = {
+      id: taskId,
+      startX: e.clientX,
+      startY: e.clientY,
+      origX: win.x,
+      origY: win.y,
+    };
+  };
 
   // ─── Stats ───
   const stats = {
@@ -416,9 +479,30 @@ export default function Dashboard() {
               <button
                 key={task.id}
                 onClick={() => {
-                  setActiveTaskId(task.id);
-                  // Mở tab nếu chưa có
-                  setOpenTabs(prev => prev.includes(task.id) ? prev : [...prev, task.id]);
+                  // Tìm window của task
+                  const existing = taskWindows.find(w => w.taskId === task.id);
+                  if (existing) {
+                    // Focus window: đưa lên trên cùng
+                    setNextZIndex(z => z + 1);
+                    setTaskWindows(prev => prev.map(w =>
+                      w.taskId === task.id ? { ...w, zIndex: nextZIndex + 1 } : w
+                    ));
+                    setActiveTaskId(task.id);
+                  } else {
+                    // Tạo window mới với vị trí cascade
+                    const offset = (taskWindows.length % 8) * 24;
+                    const newWindow: TaskWindow = {
+                      taskId: task.id,
+                      x: 40 + offset,
+                      y: 40 + offset,
+                      width: 480,
+                      height: 320,
+                      zIndex: nextZIndex,
+                    };
+                    setNextZIndex(z => z + 1);
+                    setTaskWindows(prev => [...prev, newWindow]);
+                    setActiveTaskId(task.id);
+                  }
                 }}
                 className={`w-full text-left p-3 rounded-lg border transition-all duration-200 ${
                   activeTaskId === task.id
@@ -519,209 +603,158 @@ export default function Dashboard() {
           </div>
         </header>
 
-        {/* Log Viewer */}
-        <div className="flex-1 overflow-hidden p-4">
-          {activeTaskId ? (
-            /* ─── Per-task Terminal ─── */
-            <div className="h-full bg-slate-900 rounded-xl border border-slate-800 overflow-hidden flex flex-col">
-              {/* Tab Bar (có kéo thả) */}
-              <div className="flex items-center bg-slate-800/30 border-b border-slate-800 overflow-x-auto">
-                {openTabs.map((tabId, idx) => {
-                  const tabTask = tasks.find(t => t.id === tabId);
-                  const isActive = tabId === activeTaskId;
-                  return (
-                    <div
-                      key={tabId}
-                      draggable
-                      onDragStart={(e) => {
-                        e.dataTransfer.setData('text/plain', String(idx));
-                        e.dataTransfer.effectAllowed = 'move';
-                      }}
-                      onDragOver={(e) => {
-                        e.preventDefault();
-                        e.dataTransfer.dropEffect = 'move';
-                      }}
-                      onDrop={(e) => {
-                        e.preventDefault();
-                        const from = parseInt(e.dataTransfer.getData('text/plain'));
-                        if (from === idx) return;
-                        setOpenTabs(prev => {
-                          const next = [...prev];
-                          const [moved] = next.splice(from, 1);
-                          next.splice(idx, 0, moved);
-                          return next;
-                        });
-                      }}
-                      onClick={() => setActiveTaskId(tabId)}
-                      className={`group flex items-center gap-1.5 px-3 py-1.5 text-xs font-mono border-r border-slate-800 cursor-pointer transition-all select-none ${
-                        isActive
-                          ? 'bg-slate-800 text-slate-200 border-t-2 border-t-cyan-500'
-                          : 'text-slate-500 hover:text-slate-300 hover:bg-slate-800/50'
-                      }`}
-                    >
-                      <span className="opacity-40 mr-0.5 cursor-grab active:cursor-grabbing">⠿</span>
-                      <span>{getStatusIcon(tabTask?.status || 'pending')}</span>
-                      <span className="truncate max-w-[120px]">{tabTask?.name || tabId.slice(0,8)}</span>
-                      <button
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          const newTabs = openTabs.filter(id => id !== tabId);
-                          setOpenTabs(newTabs);
-                          if (isActive) {
-                            setActiveTaskId(newTabs.length > 0 ? newTabs[newTabs.length - 1] : null);
-                          }
-                        }}
-                        className="ml-1 p-0.5 rounded hover:bg-slate-700 opacity-0 group-hover:opacity-100 transition-opacity"
-                      >
-                        <icons.x className="w-3 h-3" />
-                      </button>
-                    </div>
-                  );
-                })}
-                {/* Global Terminal Tab */}
-                <div
-                  onClick={() => setActiveTaskId(null)}
-                  className="px-3 py-1.5 text-xs text-slate-500 hover:text-slate-300 hover:bg-slate-800/50 border-r border-slate-800 cursor-pointer transition-all"
-                >
-                  🌐 Global
+        {/* ─── Log Canvas (Desktop-like floating windows) ─── */}
+        <div className="flex-1 relative overflow-hidden p-4">
+          {/* Background: Global Terminal / Welcome */}
+          <div className="absolute inset-4">
+            {connectionError ? (
+              <div className="h-full flex items-center justify-center">
+                <div className="text-center">
+                  <div className="w-16 h-16 mx-auto mb-4 rounded-full bg-red-500/10 flex items-center justify-center">
+                    <icons.x className="w-8 h-8 text-red-400" />
+                  </div>
+                  <h2 className="text-xl font-semibold text-red-400 mb-2">Connection Error</h2>
+                  <p className="text-slate-400 text-sm max-w-md mx-auto mb-4">{connectionError}</p>
+                  <button onClick={() => { setConnectionError(null); api.getTasks().then(setTasks).catch(err => setConnectionError(err.message)); }}
+                    className="px-4 py-2 bg-slate-800 hover:bg-slate-700 rounded-lg text-sm text-slate-300 transition-colors">Try Again</button>
                 </div>
               </div>
-
-              {/* Terminal Content */}
-              <div className="flex-1 overflow-y-auto p-4 font-mono text-xs leading-relaxed bg-slate-950">
-                {selectedLogs.length > 0 ? (
-                  selectedLogs.map((log, i) => (
-                    <div
-                      key={i}
-                      className={`log-entry ${
-                        log.level === 'error'
-                          ? 'text-red-400'
-                          : log.level === 'warn'
-                          ? 'text-yellow-400'
-                          : 'text-slate-300'
-                      }`}
-                    >
-                      <span className="text-slate-600 mr-2">
-                        {new Date(log.timestamp || Date.now()).toLocaleTimeString()}
-                      </span>
-                      <span className={log.level === 'error' ? 'text-red-400' : 'text-cyan-400'}>
-                        [{log.level.toUpperCase()}]
-                      </span>
-                      {' '}{log.message}
-                      <span className="cursor-blink text-slate-600 ml-1">▊</span>
+            ) : globalLogs.length > 0 ? (
+              <div className="h-full bg-slate-900/50 rounded-xl border border-slate-800/50 overflow-hidden flex flex-col backdrop-blur-[1px]">
+                <div className="px-4 py-2 bg-slate-800/30 border-b border-slate-800/50 flex items-center gap-2 text-xs text-slate-500">
+                  <span className="w-3 h-3 rounded-full bg-red-500/60" />
+                  <span className="w-3 h-3 rounded-full bg-yellow-500/60" />
+                  <span className="w-3 h-3 rounded-full bg-emerald-500/60" />
+                  <span className="ml-2 font-mono">🌐 Global Terminal</span>
+                  <span className="ml-auto text-slate-600">{globalLogs.length} lines</span>
+                </div>
+                <div className="flex-1 overflow-y-auto p-4 font-mono text-xs leading-relaxed bg-slate-950/80">
+                  {globalLogs.map((log, i) => {
+                    const taskName = tasks.find(t => t.id === log.taskId)?.name || log.taskId.slice(0, 8);
+                    return (
+                      <div key={i}
+                        onClick={() => {
+                          const existing = taskWindows.find(w => w.taskId === log.taskId);
+                          if (existing) bringToFront(log.taskId);
+                          else {
+                            const offset = (taskWindows.length % 8) * 24;
+                            setNextZIndex(z => z + 1);
+                            setTaskWindows(prev => [...prev, {
+                              taskId: log.taskId, x: 40 + offset, y: 40 + offset,
+                              width: 480, height: 320, zIndex: nextZIndex
+                            }]);
+                            setActiveTaskId(log.taskId);
+                          }
+                        }}
+                        className={`log-entry cursor-pointer transition-colors hover:bg-slate-800/30 ${log.level === 'error' ? 'text-red-400' : log.level === 'warn' ? 'text-yellow-400' : 'text-slate-300'}`}>
+                        <span className="text-slate-600 mr-2">{new Date(log.timestamp || Date.now()).toLocaleTimeString()}</span>
+                        <span className="text-cyan-500/70 font-medium">[{taskName}]</span>
+                        <span className={log.level === 'error' ? 'text-red-400' : 'text-violet-400'}>[{log.level.toUpperCase()}]</span>
+                        {' '}{log.message}<span className="cursor-blink text-slate-600 ml-1">▊</span>
+                      </div>
+                    );
+                  })}
+                  <div ref={logEndRef} />
+                </div>
+              </div>
+            ) : (
+              <div className="h-full flex items-center justify-center">
+                <div className="text-center">
+                  <icons.terminal className="w-16 h-16 mx-auto mb-4 text-slate-700" />
+                  <h2 className="text-xl font-semibold text-slate-500 mb-2">Multi-Agent Manager</h2>
+                  <p className="text-slate-600 text-sm max-w-md mx-auto">
+                    Submit a task to start. The system will use <span className="text-cyan-400">freebuff</span> to plan and{' '}
+                    <span className="text-emerald-400">opencode</span> workers.
+                  </p>
+                  <div className="mt-6 flex gap-4 justify-center text-xs text-slate-600">
+                    <div className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-800/50 rounded-full">
+                      <span className={`w-2 h-2 rounded-full ${connected ? 'bg-emerald-400' : 'bg-red-400'}`} />
+                      {connected ? 'Connected' : 'Disconnected'}
                     </div>
-                  ))
-                ) : (
-                  <div className="h-full flex items-center justify-center">
-                    <div className="text-center">
-                      <icons.loader className="w-8 h-8 mx-auto mb-3 text-slate-600 animate-spin" />
-                      <p className="text-slate-500 text-sm">Waiting for logs...</p>
-                      <p className="text-slate-600 text-xs mt-1">
-                        Task is pending. Buffy (manager) will pick it up shortly.
-                      </p>
+                    <div className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-800/50 rounded-full">
+                      <icons.gitBranch className="w-3.5 h-3.5" /> Git Worktree
+                    </div>
+                    <div className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-800/50 rounded-full">
+                      <icons.loader className="w-3.5 h-3.5" /> Workers: 4
                     </div>
                   </div>
-                )}
-                <div ref={logEndRef} />
+                </div>
               </div>
-            </div>
-          ) : (
-            /* ─── Global Terminal / Welcome ─── */
-            <div className="h-full flex items-center justify-center">
-              <div className="text-center max-w-lg">
-                {connectionError ? (
-                  <>
-                    <div className="w-16 h-16 mx-auto mb-4 rounded-full bg-red-500/10 flex items-center justify-center">
-                      <icons.x className="w-8 h-8 text-red-400" />
-                    </div>
-                    <h2 className="text-xl font-semibold text-red-400 mb-2">
-                      Connection Error
-                    </h2>
-                    <p className="text-slate-400 text-sm max-w-md mx-auto mb-4">
-                      {connectionError}
-                    </p>
-                    <button
-                      onClick={() => {
-                        setConnectionError(null);
-                        api.getTasks().then(setTasks).catch(err => setConnectionError(err.message));
-                      }}
-                      className="px-4 py-2 bg-slate-800 hover:bg-slate-700 rounded-lg text-sm text-slate-300 transition-colors"
-                    >
-                      Try Again
-                    </button>
-                  </>
-                ) : globalLogs.length > 0 ? (
-                  <div className="h-full w-full bg-slate-900 rounded-xl border border-slate-800 overflow-hidden flex flex-col">
-                    {/* Terminal Header */}
-                    <div className="px-4 py-2 bg-slate-800/50 border-b border-slate-800 flex items-center gap-2 text-xs text-slate-500">
-                      <span className="w-3 h-3 rounded-full bg-red-500/80" />
-                      <span className="w-3 h-3 rounded-full bg-yellow-500/80" />
-                      <span className="w-3 h-3 rounded-full bg-emerald-500/80" />
-                      <span className="ml-2 font-mono">🌐 Global Terminal</span>
-                      <span className="ml-auto text-slate-600">{globalLogs.length} lines</span>
-                    </div>
+            )}
+          </div>
 
-                    {/* Global Log Stream */}
-                    <div className="flex-1 overflow-y-auto p-4 font-mono text-xs leading-relaxed bg-slate-950">
-                      {globalLogs.map((log, i) => {
-                        const taskName = tasks.find(t => t.id === log.taskId)?.name || log.taskId.slice(0, 8);
-                        return (
-                          <div
-                            key={i}
-                            onClick={() => {
-                              setActiveTaskId(log.taskId);
-                              setOpenTabs(prev => prev.includes(log.taskId) ? prev : [...prev, log.taskId]);
-                            }}
-                            className={`log-entry cursor-pointer transition-colors hover:bg-slate-800/30 ${
-                              log.level === 'error'
-                                ? 'text-red-400'
-                                : log.level === 'warn'
-                                ? 'text-yellow-400'
-                                : 'text-slate-300'
-                            }`}
-                          >
-                            <span className="text-slate-600 mr-2">
-                              {new Date(log.timestamp || Date.now()).toLocaleTimeString()}
-                            </span>
-                            <span className="text-cyan-500/70 font-medium">[{taskName}]</span>
-                            <span className={log.level === 'error' ? 'text-red-400' : 'text-violet-400'}>
-                              [{log.level.toUpperCase()}]
-                            </span>
-                            {' '}{log.message}
-                            <span className="cursor-blink text-slate-600 ml-1">▊</span>
-                          </div>
-                        );
-                      })}
-                      <div ref={logEndRef} />
-                    </div>
+          {/* Foreground: Floating Windows */}
+          {taskWindows.map(win => {
+            const task = tasks.find(t => t.id === win.taskId);
+            const taskLogs = logs[win.taskId] || [];
+            return (
+              <div
+                key={win.taskId}
+                onMouseDown={() => bringToFront(win.taskId)}
+                style={{
+                  position: 'absolute',
+                  left: win.x,
+                  top: win.y,
+                  width: win.width,
+                  height: win.height,
+                  zIndex: win.zIndex,
+                }}
+                className="bg-slate-900 rounded-xl border border-slate-700/80 shadow-2xl flex flex-col overflow-hidden transition-shadow hover:shadow-cyan-500/5"
+              >
+                {/* Window Title Bar (draggable) */}
+                <div
+                  onMouseDown={(e) => startDrag(e, win.taskId, win)}
+                  className="flex items-center gap-2 px-3 py-2 bg-slate-800 border-b border-slate-700 cursor-grab active:cursor-grabbing select-none"
+                >
+                  <div className="flex gap-1.5">
+                    <span className="w-3 h-3 rounded-full bg-red-500/80" />
+                    <span className="w-3 h-3 rounded-full bg-yellow-500/80" />
+                    <span className="w-3 h-3 rounded-full bg-emerald-500/80" />
                   </div>
-                ) : (
-                  <>
-                    <icons.terminal className="w-16 h-16 mx-auto mb-4 text-slate-700" />
-                    <h2 className="text-xl font-semibold text-slate-500 mb-2">
-                      Multi-Agent Manager
-                    </h2>
-                    <p className="text-slate-600 text-sm max-w-md mx-auto">
-                      Submit a task to start. The system will use <span className="text-cyan-400">freebuff</span> to plan and{' '}
-                      <span className="text-emerald-400">opencode</span> workers to execute tasks in parallel using isolated Git Worktrees.
-                    </p>
-                    <div className="mt-6 flex gap-4 justify-center text-xs text-slate-600">
-                      <div className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-800/50 rounded-full">
-                        <span className={`w-2 h-2 rounded-full ${connected ? 'bg-emerald-400' : 'bg-red-400'}`} />
-                        {connected ? 'Connected' : 'Disconnected'}
+                  <span className="ml-1">{getStatusIcon(task?.status || 'pending')}</span>
+                  <span className="text-xs font-medium text-slate-200 truncate flex-1">
+                    {task?.name || win.taskId.slice(0, 8)}
+                  </span>
+                  <span className={`text-[10px] px-1.5 py-0.5 rounded-full border ${getStatusColor(task?.status || 'pending')}`}>
+                    {task?.status || 'pending'}
+                  </span>
+                  <span className="text-[10px] text-slate-600">{taskLogs.length} lines</span>
+                  <button
+                    onClick={(e) => { e.stopPropagation(); closeWindow(win.taskId); }}
+                    className="ml-1 p-0.5 rounded hover:bg-slate-700 text-slate-500 hover:text-white transition-colors"
+                  >
+                    <icons.x className="w-3.5 h-3.5" />
+                  </button>
+                </div>
+
+                {/* Window Content */}
+                <div className="flex-1 overflow-y-auto p-3 font-mono text-xs leading-relaxed bg-slate-950">
+                  {taskLogs.length > 0 ? (
+                    taskLogs.map((log, i) => (
+                      <div key={i} className={`log-entry ${log.level === 'error' ? 'text-red-400' : log.level === 'warn' ? 'text-yellow-400' : 'text-slate-300'}`}>
+                        <span className="text-slate-600 mr-2">{new Date(log.timestamp || Date.now()).toLocaleTimeString()}</span>
+                        <span className={log.level === 'error' ? 'text-red-400' : 'text-cyan-400'}>[{log.level.toUpperCase()}]</span>
+                        {' '}{log.message}
                       </div>
-                      <div className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-800/50 rounded-full">
-                        <icons.gitBranch className="w-3.5 h-3.5" />
-                        Git Worktree
-                      </div>
-                      <div className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-800/50 rounded-full">
-                        <icons.loader className="w-3.5 h-3.5" />
-                        Workers: 4
+                    ))
+                  ) : (
+                    <div className="h-full flex items-center justify-center">
+                      <div className="text-center">
+                        <icons.loader className="w-6 h-6 mx-auto mb-2 text-slate-600 animate-spin" />
+                        <p className="text-slate-500 text-xs">Waiting for logs...</p>
                       </div>
                     </div>
-                  </>
-                )}
+                  )}
+                  <div ref={el => { wLogEndRefs.current[win.taskId] = el; }} />
+                </div>
               </div>
+            );
+          })}
+
+          {/* Instructions overlay (first time) */}
+          {taskWindows.length === 0 && globalLogs.length > 0 && (
+            <div className="absolute bottom-6 left-1/2 -translate-x-1/2 px-4 py-2 bg-slate-800/80 backdrop-blur-sm rounded-lg border border-slate-700 text-xs text-slate-400 shadow-lg">
+              💡 Click a task in the sidebar or a log entry above to open a floating window
             </div>
           )}
         </div>
