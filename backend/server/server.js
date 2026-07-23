@@ -16,6 +16,9 @@ const { Server } = require('socket.io');
 const path = require('path');
 const { body, query, param, validationResult } = require('express-validator');
 const rateLimit = require('express-rate-limit');
+const { v4: uuidv4 } = require('uuid');
+const bcrypt = require('bcryptjs');
+const { authenticate, optionalAuth, generateToken, revokeToken, users } = require('./auth');
 const TaskDatabase = require('./database');
 const TaskQueue = require('./task_queue');
 
@@ -65,6 +68,14 @@ const submitLimiter = rateLimit({
   standardHeaders: true,
   legacyHeaders: false,
   message: { error: 'Too many task submissions, please slow down' }
+});
+
+const authLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 5,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: 'Too many login attempts, please try again after 15 minutes' }
 });
 
 // ─── Middleware ───
@@ -127,9 +138,98 @@ taskQueue.on('task:failed', (task, error) => {
   io.emit('task:updated', task);
 });
 
+// ─── Auth Routes ───
+
+app.post('/api/auth/register',
+  authLimiter,
+  validate([
+    body('username').trim().notEmpty().isLength({ min: 3, max: 30 }).withMessage('Username must be 3-30 characters'),
+    body('password').trim().notEmpty().isLength({ min: 6, max: 100 }).withMessage('Password must be 6-100 characters')
+  ]),
+  async (req, res) => {
+    try {
+      const { username, password } = req.body;
+
+      // Check existing user
+      for (const [, user] of users) {
+        if (user.username === username) {
+          return res.status(409).json({ error: 'Username already exists' });
+        }
+      }
+
+      const id = uuidv4();
+      const hashedPassword = await bcrypt.hash(password, 10);
+
+      users.set(id, { id, username, password: hashedPassword });
+
+      const token = generateToken({ id, username });
+
+      res.status(201).json({
+        message: 'User created successfully',
+        user: { id, username },
+        token
+      });
+    } catch (err) {
+      res.status(500).json({ error: 'Registration failed' });
+    }
+  }
+);
+
+app.post('/api/auth/login',
+  authLimiter,
+  validate([
+    body('username').trim().notEmpty().withMessage('Username is required'),
+    body('password').trim().notEmpty().withMessage('Password is required')
+  ]),
+  async (req, res) => {
+    try {
+      const { username, password } = req.body;
+
+      // Find user
+      let foundUser = null;
+      for (const [, user] of users) {
+        if (user.username === username) {
+          foundUser = user;
+          break;
+        }
+      }
+
+      // Prevent timing attack: always call bcrypt.compare even if user not found
+      const dummyHash = '$2a$10$aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa';
+      const validPassword = foundUser
+        ? await bcrypt.compare(password, foundUser.password)
+        : await bcrypt.compare(password, dummyHash);
+
+      if (!foundUser || !validPassword) {
+        return res.status(401).json({ error: 'Invalid username or password' });
+      }
+
+      const token = generateToken({ id: foundUser.id, username: foundUser.username });
+
+      res.json({
+        message: 'Login successful',
+        user: { id: foundUser.id, username: foundUser.username },
+        token
+      });
+    } catch (err) {
+      res.status(500).json({ error: 'Login failed' });
+    }
+  }
+);
+
+app.post('/api/auth/logout', authenticate, (req, res) => {
+  const token = req.headers.authorization.split(' ')[1];
+  revokeToken(token);
+  res.json({ message: 'Logged out successfully' });
+});
+
+app.get('/api/auth/me', authenticate, (req, res) => {
+  res.json({ user: req.user });
+});
+
 // ─── REST API ───
 
-// Health check
+// Health check (public)
 app.get('/api/health', (req, res) => {
   res.json({ 
     status: 'ok', 
