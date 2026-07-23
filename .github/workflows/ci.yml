@@ -1,0 +1,55 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  test-backend-core:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Run core tests
+        run: |
+          python3 tests/test_orchestrator.py
+
+  test-backend-server:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Install dependencies
+        run: |
+          cd backend/server
+          npm install
+      - name: Check server syntax
+        run: |
+          cd backend/server
+          node --check server.js
+          node --check database.js
+          node --check task_queue.js
+
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Lint Python
+        run: |
+          pip install flake8
+          flake8 backend/core/ tests/ --max-line-length=100 || echo "Lint warnings found"
+      - name: Check shell scripts
+        run: |
+          bash -n scripts/setup.sh
+          bash -n scripts/git_merge.sh
+          bash -n scripts/cleanup.sh
+          bash -n scripts/error_recovery.sh
+          bash -n scripts/test.sh

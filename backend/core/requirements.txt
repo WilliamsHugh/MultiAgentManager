@@ -1,0 +1,9 @@
+# Python dependencies for Multi-Agent Orchestrator Core
+# No external dependencies needed - uses only standard library:
+# - subprocess (CLI management)
+# - threading (parallel execution)
+# - json (plan parsing)
+# - re (regex parsing)
+# - dataclasses (task model)
+# - pathlib (path management)
+# - argparse (CLI interface)
