@@ -6,7 +6,6 @@ import {
   disconnectSocket,
   getSocket,
   LogEntry,
-  TaskEvent,
   submitTasks,
 } from '@/lib/socket';
 import { api, Task, Project, QueueStats } from '@/lib/api';
@@ -62,6 +61,7 @@ export default function Dashboard() {
   const [showSidebar, setShowSidebar] = useState(true);
   const [notifications, setNotifications] = useState<Array<{id: string; message: string; type: string}>>([]);
   const [connectionError, setConnectionError] = useState<string | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
 
   const logEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -136,6 +136,7 @@ export default function Dashboard() {
 
   // ─── Load existing tasks on mount ───
   useEffect(() => {
+    setIsLoading(true);
     api.getTasks()
       .then(tasks => {
         setTasks(tasks);
@@ -144,7 +145,8 @@ export default function Dashboard() {
       .catch(err => {
         console.error('Failed to load tasks:', err.message);
         setConnectionError(err.message);
-      });
+      })
+      .finally(() => setIsLoading(false));
     fetchQueueStats();
     const interval = setInterval(fetchQueueStats, 5000);
     return () => clearInterval(interval);
@@ -254,7 +256,16 @@ export default function Dashboard() {
 
         {/* Task List */}
         <div className="flex-1 overflow-y-auto p-2 space-y-1.5">
-          {tasks.length === 0 ? (
+          {isLoading ? (
+            <div className="space-y-2 p-2">
+              {[1, 2, 3].map(i => (
+                <div key={i} className="animate-pulse p-3 rounded-lg bg-slate-800/30">
+                  <div className="h-4 bg-slate-700/50 rounded w-3/4 mb-2" />
+                  <div className="h-3 bg-slate-700/30 rounded w-1/2" />
+                </div>
+              ))}
+            </div>
+          ) : tasks.length === 0 ? (
             <div className="text-center py-8 text-slate-600 text-sm">
               <icons.terminal className="w-8 h-8 mx-auto mb-2 opacity-30" />
               No tasks yet
