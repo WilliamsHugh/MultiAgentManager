@@ -58,6 +58,7 @@ export default function Dashboard() {
   const [projectName, setProjectName] = useState('');
   const [queueStats, setQueueStats] = useState<QueueStats | null>(null);
   const [activeTaskId, setActiveTaskId] = useState<string | null>(null);
+  const [openTabs, setOpenTabs] = useState<string[]>([]);
   const [showSidebar, setShowSidebar] = useState(true);
   const [notifications, setNotifications] = useState<Array<{id: string; message: string; type: string}>>([]);
   const [connectionError, setConnectionError] = useState<string | null>(null);
@@ -414,7 +415,11 @@ export default function Dashboard() {
             tasks.map(task => (
               <button
                 key={task.id}
-                onClick={() => setActiveTaskId(task.id)}
+                onClick={() => {
+                  setActiveTaskId(task.id);
+                  // Mở tab nếu chưa có
+                  setOpenTabs(prev => prev.includes(task.id) ? prev : [...prev, task.id]);
+                }}
                 className={`w-full text-left p-3 rounded-lg border transition-all duration-200 ${
                   activeTaskId === task.id
                     ? 'bg-slate-800 border-slate-600 shadow-md'
@@ -516,55 +521,112 @@ export default function Dashboard() {
 
         {/* Log Viewer */}
         <div className="flex-1 overflow-hidden p-4">
-          {(activeTaskId && selectedLogs.length > 0) ? (
+          {activeTaskId ? (
+            /* ─── Per-task Terminal ─── */
             <div className="h-full bg-slate-900 rounded-xl border border-slate-800 overflow-hidden flex flex-col">
-              {/* Terminal Header */}
-              <div className="px-4 py-2 bg-slate-800/50 border-b border-slate-800 flex items-center gap-2 text-xs text-slate-500">
-                <span className="w-3 h-3 rounded-full bg-red-500/80" />
-                <span className="w-3 h-3 rounded-full bg-yellow-500/80" />
-                <span className="w-3 h-3 rounded-full bg-emerald-500/80" />
-                <span className="ml-2 font-mono">
-                  {tasks.find(t => t.id === activeTaskId)?.name || 'Terminal'}
-                </span>
-                <button
+              {/* Tab Bar (có kéo thả) */}
+              <div className="flex items-center bg-slate-800/30 border-b border-slate-800 overflow-x-auto">
+                {openTabs.map((tabId, idx) => {
+                  const tabTask = tasks.find(t => t.id === tabId);
+                  const isActive = tabId === activeTaskId;
+                  return (
+                    <div
+                      key={tabId}
+                      draggable
+                      onDragStart={(e) => {
+                        e.dataTransfer.setData('text/plain', String(idx));
+                        e.dataTransfer.effectAllowed = 'move';
+                      }}
+                      onDragOver={(e) => {
+                        e.preventDefault();
+                        e.dataTransfer.dropEffect = 'move';
+                      }}
+                      onDrop={(e) => {
+                        e.preventDefault();
+                        const from = parseInt(e.dataTransfer.getData('text/plain'));
+                        if (from === idx) return;
+                        setOpenTabs(prev => {
+                          const next = [...prev];
+                          const [moved] = next.splice(from, 1);
+                          next.splice(idx, 0, moved);
+                          return next;
+                        });
+                      }}
+                      onClick={() => setActiveTaskId(tabId)}
+                      className={`group flex items-center gap-1.5 px-3 py-1.5 text-xs font-mono border-r border-slate-800 cursor-pointer transition-all select-none ${
+                        isActive
+                          ? 'bg-slate-800 text-slate-200 border-t-2 border-t-cyan-500'
+                          : 'text-slate-500 hover:text-slate-300 hover:bg-slate-800/50'
+                      }`}
+                    >
+                      <span className="opacity-40 mr-0.5 cursor-grab active:cursor-grabbing">⠿</span>
+                      <span>{getStatusIcon(tabTask?.status || 'pending')}</span>
+                      <span className="truncate max-w-[120px]">{tabTask?.name || tabId.slice(0,8)}</span>
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          const newTabs = openTabs.filter(id => id !== tabId);
+                          setOpenTabs(newTabs);
+                          if (isActive) {
+                            setActiveTaskId(newTabs.length > 0 ? newTabs[newTabs.length - 1] : null);
+                          }
+                        }}
+                        className="ml-1 p-0.5 rounded hover:bg-slate-700 opacity-0 group-hover:opacity-100 transition-opacity"
+                      >
+                        <icons.x className="w-3 h-3" />
+                      </button>
+                    </div>
+                  );
+                })}
+                {/* Global Terminal Tab */}
+                <div
                   onClick={() => setActiveTaskId(null)}
-                  className="ml-2 px-2 py-0.5 text-[10px] font-medium bg-slate-700 hover:bg-slate-600 rounded border border-slate-600 text-slate-400 hover:text-white transition-colors"
-                  title="Back to Global Terminal"
+                  className="px-3 py-1.5 text-xs text-slate-500 hover:text-slate-300 hover:bg-slate-800/50 border-r border-slate-800 cursor-pointer transition-all"
                 >
-                  ← Global
-                </button>
-                <span className="ml-auto text-slate-600">
-                  {selectedLogs.length} lines
-                </span>
+                  🌐 Global
+                </div>
               </div>
 
-              {/* Log Content */}
+              {/* Terminal Content */}
               <div className="flex-1 overflow-y-auto p-4 font-mono text-xs leading-relaxed bg-slate-950">
-                {selectedLogs.map((log, i) => (
-                  <div
-                    key={i}
-                    className={`log-entry ${
-                      log.level === 'error'
-                        ? 'text-red-400'
-                        : log.level === 'warn'
-                        ? 'text-yellow-400'
-                        : 'text-slate-300'
-                    }`}
-                  >
-                    <span className="text-slate-600 mr-2">
-                      {new Date(log.timestamp || Date.now()).toLocaleTimeString()}
-                    </span>
-                    <span className={log.level === 'error' ? 'text-red-400' : 'text-cyan-400'}>
-                      [{log.level.toUpperCase()}]
-                    </span>
-                    {' '}{log.message}
-                    <span className="cursor-blink text-slate-600 ml-1">▊</span>
+                {selectedLogs.length > 0 ? (
+                  selectedLogs.map((log, i) => (
+                    <div
+                      key={i}
+                      className={`log-entry ${
+                        log.level === 'error'
+                          ? 'text-red-400'
+                          : log.level === 'warn'
+                          ? 'text-yellow-400'
+                          : 'text-slate-300'
+                      }`}
+                    >
+                      <span className="text-slate-600 mr-2">
+                        {new Date(log.timestamp || Date.now()).toLocaleTimeString()}
+                      </span>
+                      <span className={log.level === 'error' ? 'text-red-400' : 'text-cyan-400'}>
+                        [{log.level.toUpperCase()}]
+                      </span>
+                      {' '}{log.message}
+                      <span className="cursor-blink text-slate-600 ml-1">▊</span>
+                    </div>
+                  ))
+                ) : (
+                  <div className="h-full flex items-center justify-center">
+                    <div className="text-center">
+                      <icons.loader className="w-8 h-8 mx-auto mb-3 text-slate-600 animate-spin" />
+                      <p className="text-slate-500 text-sm">Waiting for logs...</p>
+                      <p className="text-slate-600 text-xs mt-1">
+                        Task is pending. Buffy (manager) will pick it up shortly.
+                      </p>
+                    </div>
                   </div>
-                ))}
+                )}
                 <div ref={logEndRef} />
               </div>
             </div>
           ) : (
+            /* ─── Global Terminal / Welcome ─── */
             <div className="h-full flex items-center justify-center">
               <div className="text-center max-w-lg">
                 {connectionError ? (
@@ -589,18 +651,14 @@ export default function Dashboard() {
                     </button>
                   </>
                 ) : globalLogs.length > 0 ? (
-                  <div className="h-full bg-slate-900 rounded-xl border border-slate-800 overflow-hidden flex flex-col">
+                  <div className="h-full w-full bg-slate-900 rounded-xl border border-slate-800 overflow-hidden flex flex-col">
                     {/* Terminal Header */}
                     <div className="px-4 py-2 bg-slate-800/50 border-b border-slate-800 flex items-center gap-2 text-xs text-slate-500">
                       <span className="w-3 h-3 rounded-full bg-red-500/80" />
                       <span className="w-3 h-3 rounded-full bg-yellow-500/80" />
                       <span className="w-3 h-3 rounded-full bg-emerald-500/80" />
-                      <span className="ml-2 font-mono">
-                        🌐 Global Terminal
-                      </span>
-                      <span className="ml-auto text-slate-600">
-                        {globalLogs.length} lines
-                      </span>
+                      <span className="ml-2 font-mono">🌐 Global Terminal</span>
+                      <span className="ml-auto text-slate-600">{globalLogs.length} lines</span>
                     </div>
 
                     {/* Global Log Stream */}
@@ -610,7 +668,10 @@ export default function Dashboard() {
                         return (
                           <div
                             key={i}
-                            onClick={() => setActiveTaskId(log.taskId)}
+                            onClick={() => {
+                              setActiveTaskId(log.taskId);
+                              setOpenTabs(prev => prev.includes(log.taskId) ? prev : [...prev, log.taskId]);
+                            }}
                             className={`log-entry cursor-pointer transition-colors hover:bg-slate-800/30 ${
                               log.level === 'error'
                                 ? 'text-red-400'
@@ -622,9 +683,7 @@ export default function Dashboard() {
                             <span className="text-slate-600 mr-2">
                               {new Date(log.timestamp || Date.now()).toLocaleTimeString()}
                             </span>
-                            <span className="text-cyan-500/70 font-medium">
-                              [{taskName}]
-                            </span>
+                            <span className="text-cyan-500/70 font-medium">[{taskName}]</span>
                             <span className={log.level === 'error' ? 'text-red-400' : 'text-violet-400'}>
                               [{log.level.toUpperCase()}]
                             </span>
