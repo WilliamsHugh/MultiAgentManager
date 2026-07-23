@@ -78,14 +78,11 @@ fi
 
 # Step 6: Show summary
 cd "$PROJECT_DIR"
-log_info ""
-log_info "📋 Recovery Summary:"
+log_info "Recovery summary:"
 log_info "  Worktree: $WORKTREE_PATH"
-log_info "  Branch:   $CURRENT_BRANCH"
-log_info "  Status:   Preserved for debugging"
-log_info ""
-log_info "To retry with opencode:"
-log_info "  opencode --worktree $WORKTREE_PATH"
-log_info ""
+log_info "  Branch: $CURRENT_BRANCH"
+log_info "  Error worktree preserved for debugging"
 
 log_ok "✅ Error recovery complete!"
+log_info "Worktree preserved at: $WORKTREE_PATH"
+log_info "To retry: opencode --worktree $WORKTREE_PATH"

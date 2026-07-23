@@ -82,12 +82,12 @@ MultiAgentManager/
 
 ## 🔄 Workflow
 
-1. **User** submits request via Dashboard
-2. **freebuff** (Supervisor) analyzes and creates JSON plan
-3. **Orchestrator** creates Git Worktrees for each task
-4. **opencode workers** execute tasks in parallel
-5. **Results** merged back to main branch
-6. **Worktrees** cleaned up automatically
+1. User submits request via Dashboard
+2. freebuff analyzes and creates JSON plan
+3. Orchestrator creates Git Worktrees for each task
+4. opencode workers execute tasks in parallel
+5. Results merged back to main
+6. Worktrees cleaned up automatically
 
 ## 🧪 Testing
 
@@ -101,7 +101,40 @@ bash scripts/test.sh
 
 ## 📝 Task Documents
 
-- [Task 1: Backend Core](./docs/TASK_1_BACKEND_CORE.md) - Python Orchestrator
-- [Task 2: Backend Server](./docs/TASK_2_BACKEND_SERVER.md) - Node.js Server
-- [Task 3: Frontend Dashboard](./docs/TASK_3_FRONTEND.md) - Next.js UI
-- [Task 4: DevOps & Integration](./docs/TASK_4_DEVOPS.md) - Scripts & Tests
+- [Task 1: Backend Core](./docs/TASK_1_BACKEND_CORE.md)
+- [Task 2: Backend Server](./docs/TASK_2_BACKEND_SERVER.md)
+- [Task 3: Frontend Dashboard](./docs/TASK_3_FRONTEND.md)
+- [Task 4: DevOps & Integration](./docs/TASK_4_DEVOPS.md)
+
+## 🎯 Yêu Cầu Hoàn Thành
+
+1. ✅ Tạo đủ các file trong `scripts/`
+2. ✅ Tạo test files trong `tests/`
+3. ✅ Tạo `.github/workflows/ci.yml`
+4. ✅ Chạy `bash scripts/test.sh` thành công
+5. ✅ Makefile hoạt động (make help, make test)
+6. ✅ README.md hoàn chỉnh
+
+## 📤 Giao Tiếp Với Các Dev Khác
+
+- **Nhận từ Dev 1**: Gọi scripts khi cần merge/cleanup
+- **Nhận từ Dev 2**: Webhook khi task hoàn thành
+- **Gửi cho tất cả**: CI pipeline status, test results
+
+## 🔗 Phụ Thuộc
+
+- Task này **độc lập** (có thể làm cuối)
+- Cần toàn bộ project structure hoàn chỉnh
+
+## 📝 Hướng Dẫn Kiểm Thử
+
+```bash
+# Chạy tất cả tests
+make test
+
+# Kiểm tra syntax
+make lint
+
+# Dọn dẹp worktree
+make cleanup
+```

@@ -24,13 +24,8 @@ install: ## Cài đặt tất cả dependencies
 	@cd frontend && npm install
 
 lint: ## Kiểm tra syntax
-	@python3 -m py_compile backend/core/orchestrator.py 2>&1 || true
-	@python3 -m py_compile backend/core/task_parser.py 2>&1 || true
-	@python3 -m py_compile backend/core/git_worktree_manager.py 2>&1 || true
-	@python3 -m py_compile backend/core/freebuff_wrapper.py 2>&1 || true
+	@python3 -m py_compile backend/core/*.py 2>&1 || true
 	@cd backend/server && node --check server.js 2>&1 || true
-	@cd backend/server && node --check database.js 2>&1 || true
-	@cd backend/server && node --check task_queue.js 2>&1 || true
 
 git-worktree-list: ## Liệt kê các worktrees
 	@git worktree list

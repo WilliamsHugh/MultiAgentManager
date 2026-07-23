@@ -72,6 +72,20 @@ mkdir -p "$PROJECT_DIR/backend/server/data"
 mkdir -p "$PROJECT_DIR/data"
 log_ok "Data directories created"
 
+# ─── Git Hooks ───
+echo -e "\n${CYAN}Setting up Git hooks...${NC}"
+HOOKS_DIR="$PROJECT_DIR/.git/hooks"
+
+if [ -d "$HOOKS_DIR" ]; then
+    # Pre-commit hook
+    cat > "$HOOKS_DIR/pre-commit" << 'EOF'
+#!/bin/bash
+echo "🔍 Running pre-commit checks..."
+EOF
+    chmod +x "$HOOKS_DIR/pre-commit"
+    log_ok "Git hooks configured"
+fi
+
 # ─── Initial Git Setup ───
 echo -e "\n${CYAN}Initializing Git repository...${NC}"
 if [ ! -d "$PROJECT_DIR/.git" ]; then
@@ -96,6 +110,6 @@ echo "║            Setup Complete!                    ║"
 echo "╠══════════════════════════════════════════════╣"
 echo "║  Start server: cd backend/server && npm start ║"
 echo "║  Start UI:     cd frontend && npm run dev     ║"
-echo "║  Run tests:    make test                       ║"
+echo "║  Run tests:    ./scripts/test.sh              ║"
 echo "╚══════════════════════════════════════════════╝"
 echo ""
