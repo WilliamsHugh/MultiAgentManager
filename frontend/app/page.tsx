@@ -64,6 +64,7 @@ export default function Dashboard() {
   const [isLoading, setIsLoading] = useState(true);
   const [projectPath, setProjectPath] = useState<string | null>(null);
   const [browserOpen, setBrowserOpen] = useState(false);
+  const [globalLogs, setGlobalLogs] = useState<LogEntry[]>([]);
   const [fsEntries, setFsEntries] = useState<FsEntry[]>([]);
   const [fsPath, setFsPath] = useState('');
   const [selectedModel, setSelectedModel] = useState('auto');
@@ -133,6 +134,14 @@ export default function Dashboard() {
       addNotification(`Task failed: ${error}`, 'error');
     });
 
+    socket.on('log:global', (data: LogEntry) => {
+      setGlobalLogs(prev => {
+        const next = [...prev, data];
+        // Giới hạn 1000 dòng để tránh memory leak
+        return next.length > 1000 ? next.slice(-1000) : next;
+      });
+    });
+
     socket.on('tasks:submitted', ({ tasks: newTasks }: { tasks: Task[] }) => {
       setTasks(prev => [...prev, ...newTasks]);
       addNotification(`${newTasks.length} tasks submitted!`, 'success');
@@ -143,10 +152,10 @@ export default function Dashboard() {
     };
   }, []);
 
-  // ─── Auto-scroll logs ───
+  // ─── Auto-scroll logs (cả per-task và global) ───
   useEffect(() => {
     logEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [logs]);
+  }, [logs, globalLogs]);
 
   // ─── Load existing tasks on mount ───
   useEffect(() => {
@@ -512,6 +521,13 @@ export default function Dashboard() {
                 <span className="ml-2 font-mono">
                   {tasks.find(t => t.id === activeTaskId)?.name || 'Terminal'}
                 </span>
+                <button
+                  onClick={() => setActiveTaskId(null)}
+                  className="ml-2 px-2 py-0.5 text-[10px] font-medium bg-slate-700 hover:bg-slate-600 rounded border border-slate-600 text-slate-400 hover:text-white transition-colors"
+                  title="Back to Global Terminal"
+                >
+                  ← Global
+                </button>
                 <span className="ml-auto text-slate-600">
                   {selectedLogs.length} lines
                 </span>
@@ -567,6 +583,54 @@ export default function Dashboard() {
                       Try Again
                     </button>
                   </>
+                ) : globalLogs.length > 0 ? (
+                  <div className="h-full bg-slate-900 rounded-xl border border-slate-800 overflow-hidden flex flex-col">
+                    {/* Terminal Header */}
+                    <div className="px-4 py-2 bg-slate-800/50 border-b border-slate-800 flex items-center gap-2 text-xs text-slate-500">
+                      <span className="w-3 h-3 rounded-full bg-red-500/80" />
+                      <span className="w-3 h-3 rounded-full bg-yellow-500/80" />
+                      <span className="w-3 h-3 rounded-full bg-emerald-500/80" />
+                      <span className="ml-2 font-mono">
+                        🌐 Global Terminal
+                      </span>
+                      <span className="ml-auto text-slate-600">
+                        {globalLogs.length} lines
+                      </span>
+                    </div>
+
+                    {/* Global Log Stream */}
+                    <div className="flex-1 overflow-y-auto p-4 font-mono text-xs leading-relaxed bg-slate-950">
+                      {globalLogs.map((log, i) => {
+                        const taskName = tasks.find(t => t.id === log.taskId)?.name || log.taskId.slice(0, 8);
+                        return (
+                          <div
+                            key={i}
+                            onClick={() => setActiveTaskId(log.taskId)}
+                            className={`log-entry cursor-pointer transition-colors hover:bg-slate-800/30 ${
+                              log.level === 'error'
+                                ? 'text-red-400'
+                                : log.level === 'warn'
+                                ? 'text-yellow-400'
+                                : 'text-slate-300'
+                            }`}
+                          >
+                            <span className="text-slate-600 mr-2">
+                              {new Date(log.timestamp || Date.now()).toLocaleTimeString()}
+                            </span>
+                            <span className="text-cyan-500/70 font-medium">
+                              [{taskName}]
+                            </span>
+                            <span className={log.level === 'error' ? 'text-red-400' : 'text-violet-400'}>
+                              [{log.level.toUpperCase()}]
+                            </span>
+                            {' '}{log.message}
+                            <span className="cursor-blink text-slate-600 ml-1">▊</span>
+                          </div>
+                        );
+                      })}
+                      <div ref={logEndRef} />
+                    </div>
+                  </div>
                 ) : (
                   <>
                     <icons.terminal className="w-16 h-16 mx-auto mb-4 text-slate-700" />
