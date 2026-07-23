@@ -1,5 +1,6 @@
 import type { Metadata } from 'next';
 import './globals.css';
+import { AuthProvider } from '@/lib/auth-context';
 
 export const metadata: Metadata = {
   title: 'Multi-Agent Manager',
@@ -14,7 +15,9 @@ export default function RootLayout({
   return (
     <html lang="vi">
       <body className="min-h-screen bg-slate-950 text-slate-100 antialiased">
-        {children}
+        <AuthProvider>
+          {children}
+        </AuthProvider>
       </body>
     </html>
   );
