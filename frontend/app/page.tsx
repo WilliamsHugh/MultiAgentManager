@@ -285,6 +285,15 @@ export default function Dashboard() {
               <input
                 value={fsPath}
                 onChange={e => setFsPath(e.target.value)}
+                onKeyDown={async (e) => {
+                  if (e.key === 'Enter') {
+                    try {
+                      const data = await api.listFs(fsPath || DEFAULT_FS_PATH);
+                      setFsEntries(data.entries);
+                      setFsPath(data.currentPath);
+                    } catch {}
+                  }
+                }}
                 placeholder="/path/to/project"
                 className="flex-1 px-2 py-1 text-xs bg-slate-800 rounded border border-slate-700 text-slate-300 placeholder-slate-600 focus:outline-none focus:border-cyan-500/50"
               />
@@ -301,6 +310,29 @@ export default function Dashboard() {
                 Browse
               </button>
             </div>
+
+            {/* Select current folder button */}
+            {fsPath && (
+              <button
+                onClick={async () => {
+                  try {
+                    const result = await api.selectProject(fsPath);
+                    setProjectPath(result.path);
+                    // Auto-fill project name from folder name
+                    const folderName = fsPath.split('/').filter(Boolean).pop() || '';
+                    setProjectName(folderName);
+                    setBrowserOpen(false);
+                    addNotification(`✅ Project: ${folderName} selected`, 'success');
+                  } catch (err: any) {
+                    addNotification(`❌ ${err.message}`, 'error');
+                  }
+                }}
+                className="w-full mb-2 px-2 py-1.5 text-xs font-medium bg-emerald-600/80 hover:bg-emerald-500 rounded border border-emerald-500/30 text-emerald-200 transition-all duration-200 active:scale-[0.98]"
+              >
+                📂 Select this folder as project
+              </button>
+            )}
+
             <div className="max-h-40 overflow-y-auto space-y-0.5">
               {fsPath && (
                 <button
@@ -327,16 +359,8 @@ export default function Dashboard() {
                         setFsEntries(data.entries);
                         setFsPath(data.currentPath);
                       } catch {}
-                    } else {
-                      // Select parent dir as project
-                      const dir = entry.path.substring(0, entry.path.lastIndexOf('/')) || '/';
-                      try {
-                        const result = await api.selectProject(dir);
-                        setProjectPath(result.path);
-                        setBrowserOpen(false);
-                        addNotification(`Project: ${result.path}`, 'success');
-                      } catch {}
                     }
+                    // Files: do nothing (clicking a directory navigates, click "Select folder" to confirm)
                   }}
                   className={`w-full text-left px-2 py-1 text-xs rounded transition-colors ${
                     entry.isDirectory
@@ -349,8 +373,8 @@ export default function Dashboard() {
               ))}
             </div>
             {projectPath && (
-              <div className="mt-2 text-[10px] text-emerald-400 truncate">
-                ✅ {projectPath}
+              <div className="mt-2 text-[10px] text-emerald-400/70 truncate">
+                📌 {projectPath}
               </div>
             )}
           </div>
