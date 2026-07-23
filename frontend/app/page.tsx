@@ -1,7 +1,6 @@
 'use client';
 
 import { useEffect, useState, useRef, useCallback } from 'react';
-import { useRouter } from 'next/navigation';
 import {
   connectSocket,
   disconnectSocket,
@@ -10,7 +9,6 @@ import {
   submitTasks,
 } from '@/lib/socket';
 import { api, Task, Project, QueueStats } from '@/lib/api';
-import { useAuth } from '@/lib/auth-context';
 
 // ─── Icons (inline SVGs) ───
 const icons = {
@@ -52,16 +50,6 @@ const icons = {
 };
 
 export default function Dashboard() {
-  const { isAuthenticated, isLoading: authLoading, user, logout } = useAuth();
-  const router = useRouter();
-
-  // Redirect to login if not authenticated
-  useEffect(() => {
-    if (!authLoading && !isAuthenticated) {
-      router.push('/login');
-    }
-  }, [authLoading, isAuthenticated, router]);
-
   // ─── State ───
   const [tasks, setTasks] = useState<Task[]>([]);
   const [logs, setLogs] = useState<Record<string, LogEntry[]>>({});
