@@ -233,9 +233,10 @@ io.on('connection', (socket) => {
   });
 });
 
-// ─── Start Server ───
-server.listen(PORT, () => {
-  console.log(`
+// ─── Start Server (only when run directly, not when imported in tests) ───
+if (require.main === module) {
+  server.listen(PORT, () => {
+    console.log(`
 ╔══════════════════════════════════════════════╗
 ║     Multi-Agent Manager Backend Server       ║
 ╠══════════════════════════════════════════════╣
@@ -244,5 +245,8 @@ server.listen(PORT, () => {
 ║  Dashboard: ${CORS_ORIGIN}                  ║
 ║  DB       : ${DB_PATH}                      ║
 ╚══════════════════════════════════════════════╝
-  `);
-});
+    `);
+  });
+}
+
+module.exports = { app, server, db, io };
