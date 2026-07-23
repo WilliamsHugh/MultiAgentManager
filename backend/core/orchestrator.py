@@ -249,11 +249,35 @@ After implementation, commit your changes with message: "[Dev] {task.name}"
                     "error", 
                     f"❌ Task failed (code {process.returncode}): {task.name}"
                 )
+                # Gọi error recovery script
+                self._run_error_recovery(task, worktree_full_path)
                 
         except Exception as e:
             task.status = "error"
             self._log("error", f"❌ Task exception: {task.name} - {str(e)}")
+            # Gọi error recovery script
+            self._run_error_recovery(task, worktree_full_path)
     
+    def _run_error_recovery(self, task: Task, worktree_path: str) -> None:
+        """
+        Chạy error recovery script khi task gặp lỗi.
+        
+        Args:
+            task: Task bị lỗi
+            worktree_path: Đường dẫn worktree của task
+        """
+        try:
+            recovery_script = self.repo_path / "scripts" / "error_recovery.sh"
+            if recovery_script.exists():
+                subprocess.Popen(
+                    [str(recovery_script), worktree_path, task.branch_name],
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL
+                )
+                self._log("info", f"🔄 Error recovery triggered for {task.name}")
+        except Exception as e:
+            self._log("warn", f"⚠️ Failed to run error recovery: {e}")
+
     def _merge_all(self) -> None:
         """Merge tất cả branch hoàn thành vào main."""
         for task in self.tasks:
