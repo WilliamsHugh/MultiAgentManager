@@ -41,6 +41,7 @@ class TaskDatabase {
         name TEXT NOT NULL,
         description TEXT,
         assigned_worker TEXT DEFAULT 'opencode',
+        model TEXT DEFAULT 'auto',
         worktree_path TEXT,
         branch_name TEXT,
         prompt TEXT,
@@ -52,6 +53,7 @@ class TaskDatabase {
         exit_code INTEGER,
         FOREIGN KEY(project_id) REFERENCES projects(id)
       );
+
 
       CREATE TABLE IF NOT EXISTS logs (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -78,6 +80,13 @@ class TaskDatabase {
       CREATE INDEX IF NOT EXISTS idx_logs_task ON logs(task_id);
       CREATE INDEX IF NOT EXISTS idx_logs_timestamp ON logs(timestamp);
     `);
+
+    // Migration: add model column for existing DBs (safe to run)
+    try {
+      this.db.exec(`ALTER TABLE tasks ADD COLUMN model TEXT DEFAULT 'auto'`);
+    } catch (_) {
+      // Column already exists — ignore
+    }
   }
 
   // ─── Project CRUD ───
@@ -109,6 +118,7 @@ class TaskDatabase {
     name,
     description = '',
     assignedWorker = 'opencode',
+    model = 'auto',
     worktreePath = '',
     branchName = '',
     prompt = '',
@@ -117,12 +127,12 @@ class TaskDatabase {
     const { v4: uuidv4 } = require('uuid');
     const id = uuidv4();
     const stmt = this.db.prepare(`
-      INSERT INTO tasks (id, project_id, name, description, assigned_worker, 
+      INSERT INTO tasks (id, project_id, name, description, assigned_worker, model,
                          worktree_path, branch_name, prompt, dependencies)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `);
     stmt.run(
-      id, projectId, name, description, assignedWorker,
+      id, projectId, name, description, assignedWorker, model,
       worktreePath, branchName, prompt, JSON.stringify(dependencies)
     );
     return this.getTask(id);

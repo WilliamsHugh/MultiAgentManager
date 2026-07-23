@@ -79,6 +79,19 @@ export interface LogEntry {
   timestamp: string;
 }
 
+export interface FsEntry {
+  name: string;
+  path: string;
+  isDirectory: boolean;
+  isFile: boolean;
+}
+
+export interface FsListResponse {
+  currentPath: string;
+  parentPath: string;
+  entries: FsEntry[];
+}
+
 export interface QueueStats {
   queueLength: number;
   running: number;
@@ -138,4 +151,14 @@ export const api = {
 
   // Queue
   getQueueStats: () => fetchAPI<QueueStats>('/queue/stats'),
+
+  // File System
+  listFs: (path: string) =>
+    fetchAPI<FsListResponse>(`/fs/list?path=${encodeURIComponent(path)}`),
+
+  selectProject: (path: string) =>
+    fetchAPI<{ message: string; path: string; isGitRepo: boolean }>('/fs/select-project', {
+      method: 'POST',
+      body: JSON.stringify({ path }),
+    }),
 };

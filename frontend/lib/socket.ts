@@ -63,6 +63,7 @@ export function leaveTaskRoom(taskId: string): void {
 
 export function submitTasks(data: {
   project_name: string;
+  model?: string;
   tasks: Array<{
     name: string;
     description: string;

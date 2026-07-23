@@ -19,6 +19,7 @@ const rateLimit = require('express-rate-limit');
 const { v4: uuidv4 } = require('uuid');
 const bcrypt = require('bcryptjs');
 const { authenticate, optionalAuth, generateToken, revokeToken, users } = require('./auth');
+const fs = require('fs');
 const TaskDatabase = require('./database');
 const TaskQueue = require('./task_queue');
 
@@ -227,6 +228,82 @@ app.get('/api/auth/me', authenticate, (req, res) => {
   res.json({ user: req.user });
 });
 
+// ─── Path traversal protection ───
+const ALLOWED_BASE_DIRS = process.env.ALLOWED_PATHS
+  ? process.env.ALLOWED_PATHS.split(',').map(s => path.resolve(s.trim()))
+  : [path.resolve('/home'), path.resolve(process.cwd())];
+
+function isPathSafe(targetPath) {
+  const resolved = path.resolve(targetPath);
+  // Whitelist: path phải bắt đầu bằng một trong các allowed base dirs
+  return ALLOWED_BASE_DIRS.some(base =>
+    resolved === base || resolved.startsWith(base + '/')
+  );
+}
+
+app.get('/api/fs/list', validate([
+    query('path').optional().trim()
+  ]),
+  (req, res) => {
+    try {
+      const rawPath = req.query.path || process.cwd();
+      if (!isPathSafe(rawPath)) {
+        return res.status(403).json({ error: 'Access denied: path not allowed' });
+      }
+      const dirPath = path.resolve(rawPath);
+      const entries = fs.readdirSync(dirPath, { withFileTypes: true });
+      const files = entries
+        .filter(e => !e.name.startsWith('.') && !e.name.startsWith('node_modules'))
+        .map(e => ({
+          name: e.name,
+          path: path.join(dirPath, e.name),
+          isDirectory: e.isDirectory(),
+          isFile: e.isFile()
+        }))
+        .sort((a, b) => {
+          if (a.isDirectory && !b.isDirectory) return -1;
+          if (!a.isDirectory && b.isDirectory) return 1;
+          return a.name.localeCompare(b.name);
+        });
+      
+      res.json({
+        currentPath: dirPath,
+        parentPath: path.dirname(dirPath),
+        entries: files
+      });
+    } catch (err) {
+      res.status(500).json({ error: `Cannot read directory: ${err.message}` });
+    }
+  }
+);
+
+app.post('/api/fs/select-project',
+  validate([body('path').trim().notEmpty()]),
+  (req, res) => {
+    try {
+      const rawPath = req.body.path;
+      if (!isPathSafe(rawPath)) {
+        return res.status(403).json({ error: 'Access denied: path not allowed' });
+      }
+      const projectPath = path.resolve(rawPath);
+      if (!fs.existsSync(projectPath)) {
+        return res.status(404).json({ error: 'Path does not exist' });
+      }
+      const stat = fs.statSync(projectPath);
+      if (!stat.isDirectory()) {
+        return res.status(400).json({ error: 'Path is not a directory' });
+      }
+      res.json({
+        message: 'Project selected',
+        path: projectPath,
+        isGitRepo: fs.existsSync(path.join(projectPath, '.git'))
+      });
+    } catch (err) {
+      res.status(500).json({ error: `Cannot select project: ${err.message}` });
+    }
+  }
+);
+
 // ─── REST API ───
 
 // Health check (public)
@@ -397,7 +474,7 @@ io.on('connection', (socket) => {
   
   // Submit task mới (từ frontend)
   socket.on('task:submit', async (data) => {
-    const { project_name, tasks } = data;
+    const { project_name, tasks, model } = data;
     
     // Create project
     const project = db.createProject(project_name || 'Quick Task');
@@ -406,9 +483,13 @@ io.on('connection', (socket) => {
     for (const taskData of tasks) {
       const task = db.createTask({
         ...taskData,
-        projectId: project.id
+        projectId: project.id,
+        model: model || 'auto'
       });
       createdTasks.push(task);
+      
+      // Log model selection
+      console.log(`[task:submit] Task ${task.id} - Model: ${model || 'auto'}`);
       
       // Thêm vào queue
       taskQueue.addTask({

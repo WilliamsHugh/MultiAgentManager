@@ -8,7 +8,7 @@ import {
   LogEntry,
   submitTasks,
 } from '@/lib/socket';
-import { api, Task, Project, QueueStats } from '@/lib/api';
+import { api, Task, Project, QueueStats, FsEntry } from '@/lib/api';
 
 // ─── Icons (inline SVGs) ───
 const icons = {
@@ -62,6 +62,20 @@ export default function Dashboard() {
   const [notifications, setNotifications] = useState<Array<{id: string; message: string; type: string}>>([]);
   const [connectionError, setConnectionError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+  const [projectPath, setProjectPath] = useState<string | null>(null);
+  const [browserOpen, setBrowserOpen] = useState(false);
+  const [fsEntries, setFsEntries] = useState<FsEntry[]>([]);
+  const [fsPath, setFsPath] = useState('');
+  const [selectedModel, setSelectedModel] = useState('auto');
+  const modelOptions = [
+    { id: 'auto', label: '🤖 Auto (recommended)' },
+    { id: 'gpt-4', label: '🧠 GPT-4' },
+    { id: 'gpt-4o', label: '🧠 GPT-4o' },
+    { id: 'claude-3', label: '🎯 Claude 3.5 Sonnet' },
+    { id: 'deepseek', label: '⚡ DeepSeek V4' },
+    { id: 'gemini', label: '🪐 Gemini 2.0' },
+  ];
+  const DEFAULT_FS_PATH = process.env.NEXT_PUBLIC_DEFAULT_FS_PATH || '';
 
   const logEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -176,11 +190,14 @@ export default function Dashboard() {
     
     submitTasks({
       project_name: name,
+      model: selectedModel !== 'auto' ? selectedModel : undefined,
       tasks: [
         {
           name: name,
           description: input,
           prompt: input,
+          worktreePath: projectPath || undefined,
+          branchName: `task-${Date.now()}`,
         },
       ],
     });
@@ -230,6 +247,13 @@ export default function Dashboard() {
             <h1 className="text-lg font-bold tracking-tight">
               Multi<span className="text-cyan-400">Agent</span>
             </h1>
+            <button
+              onClick={() => setBrowserOpen(!browserOpen)}
+              className="ml-2 px-2 py-0.5 text-[10px] font-medium bg-slate-800 hover:bg-slate-700 rounded border border-slate-700 text-slate-400 hover:text-white transition-colors"
+              title="Browse project folder"
+            >
+              {projectPath ? 'Change' : 'Select'} Project
+            </button>
             <span className={`ml-auto w-2 h-2 rounded-full ${connected ? 'bg-emerald-400 shadow-lg shadow-emerald-400/50' : 'bg-red-400 shadow-lg shadow-red-400/50'}`} />
           </div>
 
@@ -253,6 +277,84 @@ export default function Dashboard() {
             </div>
           </div>
         </div>
+
+        {/* Project Browser */}
+        {browserOpen && (
+          <div className="p-2 border-b border-slate-800">
+            <div className="flex items-center gap-1 mb-2">
+              <input
+                value={fsPath}
+                onChange={e => setFsPath(e.target.value)}
+                placeholder="/path/to/project"
+                className="flex-1 px-2 py-1 text-xs bg-slate-800 rounded border border-slate-700 text-slate-300 placeholder-slate-600 focus:outline-none focus:border-cyan-500/50"
+              />
+              <button
+                onClick={async () => {
+                  try {
+                    const data = await api.listFs(fsPath || DEFAULT_FS_PATH);
+                    setFsEntries(data.entries);
+                    setFsPath(data.currentPath);
+                  } catch {}
+                }}
+                className="px-2 py-1 text-xs bg-cyan-600 hover:bg-cyan-500 rounded transition-colors"
+              >
+                Browse
+              </button>
+            </div>
+            <div className="max-h-40 overflow-y-auto space-y-0.5">
+              {fsPath && (
+                <button
+                  onClick={async () => {
+                    const parent = fsPath.substring(0, fsPath.lastIndexOf('/')) || '/';
+                    try {
+                      const data = await api.listFs(parent);
+                      setFsEntries(data.entries);
+                      setFsPath(data.currentPath);
+                    } catch {}
+                  }}
+                  className="w-full text-left px-2 py-1 text-xs text-slate-500 hover:text-white hover:bg-slate-800/50 rounded transition-colors"
+                >
+                  .. (up)
+                </button>
+              )}
+              {fsEntries.map(entry => (
+                <button
+                  key={entry.path}
+                  onClick={async () => {
+                    if (entry.isDirectory) {
+                      try {
+                        const data = await api.listFs(entry.path);
+                        setFsEntries(data.entries);
+                        setFsPath(data.currentPath);
+                      } catch {}
+                    } else {
+                      // Select parent dir as project
+                      const dir = entry.path.substring(0, entry.path.lastIndexOf('/')) || '/';
+                      try {
+                        const result = await api.selectProject(dir);
+                        setProjectPath(result.path);
+                        setBrowserOpen(false);
+                        addNotification(`Project: ${result.path}`, 'success');
+                      } catch {}
+                    }
+                  }}
+                  className={`w-full text-left px-2 py-1 text-xs rounded transition-colors ${
+                    entry.isDirectory
+                      ? 'text-cyan-400 hover:bg-cyan-400/10'
+                      : 'text-slate-400 hover:bg-slate-800/50'
+                  }`}
+                >
+                  {entry.isDirectory ? '📁' : '📄'} {entry.name}
+                </button>
+              ))}
+            </div>
+            {projectPath && (
+              <div className="mt-2 text-[10px] text-emerald-400 truncate">
+                ✅ {projectPath}
+              </div>
+            )}
+          </div>
+        )}
 
         {/* Task List */}
         <div className="flex-1 overflow-y-auto p-2 space-y-1.5">
@@ -303,12 +405,27 @@ export default function Dashboard() {
               </button>
             ))
           )}
-        </div>
+        </div>          {/* Sidebar Footer - Model Selector + Stats */}
+        <div className="p-3 border-t border-slate-800 space-y-2">
+          {/* Model Selector */}
+          <div className="flex items-center gap-2">
+            <label className="text-[10px] text-slate-500 font-medium uppercase tracking-wider">
+              AI Manager
+            </label>
+            <select
+              value={selectedModel}
+              onChange={(e) => setSelectedModel(e.target.value)}
+              className="flex-1 px-2 py-1 text-xs bg-slate-800 rounded border border-slate-700 text-slate-300 focus:outline-none focus:border-cyan-500/50 transition-colors"
+            >
+              {modelOptions.map(m => (
+                <option key={m.id} value={m.id}>{m.label}</option>
+              ))}
+            </select>
+          </div>
 
-        {/* Sidebar Footer */}
-        <div className="p-3 border-t border-slate-800 text-xs text-slate-600">
+          {/* Queue Stats */}
           {queueStats && (
-            <div className="flex justify-between">
+            <div className="flex justify-between text-xs text-slate-600">
               <span>📋 Queue: {queueStats.queueLength}</span>
               <span>⚡ Run: {queueStats.running}</span>
               <span>✅ Done: {queueStats.completed}</span>
@@ -339,7 +456,7 @@ export default function Dashboard() {
               value={projectName}
               onChange={(e) => setProjectName(e.target.value)}
               placeholder="Project name (optional)"
-              className="w-48 px-3 py-1.5 bg-slate-800 rounded text-sm text-slate-300 placeholder-slate-600 border border-slate-700 focus:outline-none focus:border-cyan-500/50 transition-colors"
+              className="w-44 px-3 py-1.5 bg-slate-800 rounded text-sm text-slate-300 placeholder-slate-600 border border-slate-700 focus:outline-none focus:border-cyan-500/50 transition-colors"
             />
             <input
               value={input}

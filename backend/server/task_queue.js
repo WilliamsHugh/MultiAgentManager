@@ -6,6 +6,7 @@
  */
 
 const EventEmitter = require('events');
+const { spawn, execSync } = require('child_process');
 
 class TaskQueue extends EventEmitter {
   constructor(options = {}) {
@@ -51,6 +52,18 @@ class TaskQueue extends EventEmitter {
   }
 
   /**
+   * Kiểm tra xem opencode CLI có available không
+   */
+  _isToolAvailable(tool) {
+    try {
+      execSync(`which ${tool}`, { stdio: 'ignore' });
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  /**
    * Thực thi một task
    * @param {Object} task - Task cần thực thi
    */
@@ -61,6 +74,24 @@ class TaskQueue extends EventEmitter {
     this.emit('task:started', task);
 
     try {
+      // Kiểm tra opencode có tồn tại không
+      if (!this._isToolAvailable('opencode')) {
+        // opencode không available -> đưa task về chờ manager (Buffy) xử lý
+        this.emit('task:log', task.id, {
+          level: 'warn',
+          message: 'opencode not found. Buffy (manager) will pick up this task.'
+        });
+        
+        // Giữ task ở trạng thái pending, đưa vào mảng chờ manager
+        task.status = 'pending';
+        
+        this.running.delete(task.id);
+        this._pendingManager = this._pendingManager || [];
+        this._pendingManager.push(task);
+        this.emit('task:awaiting-manager', task);
+        return;
+      }
+      
       // Thực thi task (gọi opencode CLI)
       const result = await this._runWorker(task);
       
@@ -104,8 +135,6 @@ class TaskQueue extends EventEmitter {
    * @returns {Promise<Object>} Kết quả thực thi
    */
   async _runWorker(task) {
-    const { spawn } = require('child_process');
-    
     return new Promise((resolve, reject) => {
       const startTime = Date.now();
       let output = '';
@@ -113,15 +142,11 @@ class TaskQueue extends EventEmitter {
       // Tạo prompt cho opencode
       const prompt = this._buildPrompt(task);
       
-      // Sử dụng spawn không có shell option để tránh DEP0190 deprecation
-      // 'opencode' phải có trong PATH để spawn tìm thấy
       const worker = spawn('opencode', [prompt], {
         cwd: task.worktreePath || process.cwd(),
         env: { ...process.env }
       });
 
-      // Guard function: kiểm tra nếu task đã bị cancel thì không emit events
-      // giúp tránh FOREIGN KEY constraint failed khi async worker chạy sau khi task đã bị xóa
       const isNotCancelled = () => !this._cancelledIds.has(task.id);
 
       worker.stdout.on('data', (data) => {
@@ -194,10 +219,8 @@ Please implement this task completely and commit your changes with message: "[De
    * @returns {boolean} True if task was found and cancelled
    */
   cancelTask(id) {
-    // Track cancelled ID để _executeTask không emit events khi async worker hoàn thành
     this._cancelledIds.add(id);
     
-    // Check running tasks
     if (this.running.has(id)) {
       const task = this.running.get(id);
       this.running.delete(id);
@@ -206,7 +229,6 @@ Please implement this task completely and commit your changes with message: "[De
       return true;
     }
     
-    // Check queued tasks
     const queueIndex = this.queue.findIndex(t => t.id === id);
     if (queueIndex !== -1) {
       const task = this.queue.splice(queueIndex, 1)[0];
@@ -215,8 +237,6 @@ Please implement this task completely and commit your changes with message: "[De
       return true;
     }
     
-    // Nếu task không còn trong queue/running, vẫn giữ cancelled ID
-    // để phòng trường hợp async worker hoàn thành sau
     return false;
   }
 
