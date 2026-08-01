@@ -64,37 +64,82 @@ class TaskQueue extends EventEmitter {
   }
 
   /**
-   * Thực thi một task
-   * 
-   * NOTE: Task KHÔNG được tự động spawn opencode CLI.
-   * Thay vào đó, task được đưa vào hàng đợi pending-manager
-   * để Buffy (manager AI) pick up, phân tích, và giao cho sub-agents.
+   * Thực thi một task — chạy worker ngay lập tức
    * 
    * @param {Object} task - Task cần thực thi
    */
   async _executeTask(task) {
+    // Mark as running
+    task.status = 'running';
+    this.running.set(task.id, task);
+    this.emit('task:started', task);
+
     try {
-      // Log pending
+      // Log start
       this.emit('task:log', task.id, {
         level: 'info',
-        message: `Task "${task.name}" is pending. Buffy (manager) will analyze and assign it.`
+        message: `Task "${task.name}" started.`
       });
 
-      // Giữ task ở trạng thái pending, đưa vào mảng chờ manager
-      task.status = 'pending';
+      // Kiểm tra xem có opencode CLI không
+      const hasOpenCode = this._isToolAvailable('opencode');
       
-      this._pendingManager = this._pendingManager || [];
-      this._pendingManager.push(task);
-      this.emit('task:awaiting-manager', task);
-      
+      if (hasOpenCode) {
+        // Chạy worker thật
+        const result = await this._runWorker(task);
+        
+        task.status = 'done';
+        task.result = result;
+        this.running.delete(task.id);
+        this.completed.push(task);
+        this.emit('task:completed', task);
+        
+        this.emit('task:log', task.id, {
+          level: 'info',
+          message: `Task "${task.name}" completed (exit: ${result.exitCode}, duration: ${(result.duration / 1000).toFixed(1)}s).`
+        });
+      } else {
+        // Không có opencode — mô phỏng chạy task (feedback cho UI)
+        this.emit('task:log', task.id, {
+          level: 'warn',
+          message: `opencode CLI not found. Running in simulation mode.`
+        });
+        
+        // Mô phỏng xử lý
+        await new Promise(resolve => setTimeout(resolve, 2000));
+        
+        task.status = 'done';
+        task.result = { exitCode: 0, duration: 2000 };
+        this.running.delete(task.id);
+        this.completed.push(task);
+        this.emit('task:completed', task);
+        
+        this.emit('task:log', task.id, {
+          level: 'info',
+          message: `Task "${task.name}" completed (simulated). Install opencode CLI for real execution.`
+        });
+      }
     } catch (error) {
-      task.status = 'failed';
+      // Nếu task đã bị cancel bởi cancelTask(), không push lại vào failed
+      if (this._cancelledIds.has(task.id)) {
+        this.running.delete(task.id);
+        this._processQueue();
+        return;
+      }
+      
+      task.status = 'error';
       task.error = error.message;
+      this.running.delete(task.id);
       this.failed.push(task);
       this.emit('task:failed', task, error);
+      
+      this.emit('task:log', task.id, {
+        level: 'error',
+        message: `Task "${task.name}" failed: ${error.message}`
+      });
     }
 
-    // Tiếp tục xử lý queue
+    // Tiếp tục xử lý queue cho task tiếp theo
     this._processQueue();
   }
 

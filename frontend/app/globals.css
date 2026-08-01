@@ -1,5 +1,19 @@
 @import "tailwindcss";
 
+/* ─── Brand Colors (Tailwind 4 Theme) ─── */
+@theme {
+  --color-iris-50: #EEF2FF;
+  --color-iris-100: #E0E7FF;
+  --color-iris-200: #C7D2FE;
+  --color-iris-300: #A5B4FC;
+  --color-iris-400: #818CF8;
+  --color-iris-500: #6366F1;
+  --color-iris-600: #4F46E5;
+  --color-iris-700: #4338CA;
+  --color-iris-800: #3730A3;
+  --color-iris-900: #312E81;
+}
+
 /* Custom scrollbar */
 ::-webkit-scrollbar {
   width: 8px;

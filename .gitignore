@@ -39,8 +39,8 @@ __pycache__/
 dist/
 build/
 
-# Logs
-logs/
+# Logs (root-level runtime logs only — NOT frontend/components/logs/)
+/logs/
 *.log
 
 # Data
@@ -49,3 +49,6 @@ data/
 
 # Worktrees
 wt_*/
+
+# TS build cache
+*.tsbuildinfo

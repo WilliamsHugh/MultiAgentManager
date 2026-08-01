@@ -159,4 +159,62 @@ Không dependencies ngoài (chỉ standard library)
 
 ---
 
-*Cập nhật lần cuối: 23/07/2026 - ✅ Phase 3 Complete (Dev Mode: Auth optional)*
+## 🚀 PHASE 5 — KẾ HOẠCH & PHÂN CÔNG (01/08/2026)
+
+**Tình trạng repo khi nhận bàn giao:**
+- HEAD: `7be7eac Fix: window drag crash - RAF throttle + zIndex stale closure`
+- Phase 4 đã xong: Project Browser, Model Selector, Global Terminal, Floating Windows, per-task logs.
+- ⚠️ **Working tree bẩn**: 6 file modified (`task_queue.js`, `task_queue.test.js`, `globals.css`, `page.tsx`, `api.ts`) + thư mục **`frontend/components/` chưa được track** (13 component: canvas/common/layout/logs/monitoring). Đây là rủi ro mất code #1 → phải commit trước mọi việc khác.
+
+### Phân công
+
+| # | Task | Owner | Ưu tiên | DoD |
+|---|------|-------|---------|-----|
+| P5-0 | Commit toàn bộ working tree bẩn + `frontend/components/` lên branch `phase/5.0-wip-rescue`, review diff trước khi merge `main` | **devops-agent** | 🔴 P0 | `git status` sạch, CI xanh |
+| P5-1 | Design system: token hoá màu/typo/spacing từ `globals.css`; spec cho 13 component mới; a11y WCAG AA (contrast dark theme, focus ring, keyboard cho FloatingWindow) | **ux-agent** | 🔴 P0 | `docs/DESIGN_SPEC.md` + `USER_FLOW.md` + prototype HTML |
+| P5-2 | Refactor `page.tsx` theo component boundary mới; áp token; keyboard a11y cho drag window (arrow keys, Esc close, focus trap) | **dev-agent** (FE) | 🟠 P1 | Build pass, không regression drag/log |
+| P5-3 | Backend: ổn định `task_queue.js` (spawn opencode, cancel race), chuẩn hoá WebSocket event schema `log:global` / `log:task`, viết docs vào `docs/API.md` | **dev-agent** (BE) | 🟠 P1 | 39+ tests pass, schema versioned |
+| P5-4 | CI: thêm job typecheck + build frontend cho PR, artifact upload log, cache npm/pip; script `make verify` | **devops-agent** | 🟡 P2 | CI < 5 phút, 6 jobs |
+| P5-5 | Test: unit cho auth modules + component test (canvas/logs), E2E flow submit-task → log stream bằng Playwright | **qa-agent** | 🟠 P1 | Coverage report, 1 E2E happy path xanh |
+| P5-6 | GitHub release: init remote repo, push, README badge, tag `v0.5.0` | **devops-agent** | 🟡 P2 | Repo public/private + tag |
+
+### Thứ tự thực thi
+1. P5-0 (chặn tất cả) → 2. P5-1 song song P5-3 → 3. P5-2 sau khi có spec → 4. P5-5 → 5. P5-4, P5-6.
+
+### Rủi ro
+- Mất code chưa commit (P5-0 giải quyết).
+- `page.tsx` đang là god-component (745 dòng bị xoá trong diff hiện tại) → refactor phải có test chắn trước (P5-5 ưu tiên viết smoke test sớm).
+- Auth vẫn non-blocking; **không** bật bắt buộc auth trước khi release GitHub.
+
+---
+
+## 🚀 PHASE 4 — Kế hoạch & Phân công (01/08/2026)
+
+> Lập bởi dev-agent theo yêu cầu điều phối từ Hermes.
+> ⚠️ Lưu ý: yêu cầu ban đầu ghi path `projects/MultiAssetManager` — không tồn tại.
+> Repo thực tế là `projects/MultiAgentManager` (đã xác nhận qua git + README).
+
+### Mục tiêu Phase 4
+Đưa dự án từ "Dev Mode hoàn chỉnh" → "Release-ready": smoke test E2E, phủ test cho auth, CI xanh, đẩy lên GitHub.
+
+| # | Task | Owner | Ưu tiên | DoD |
+|---|------|-------|---------|-----|
+| P4-1 | Logout button + auth state trên sidebar dashboard; loading component dùng chung cho `/login`, `/register` | **ux-agent** (Frontend) | P1 | `npm run build` pass, không lỗi hydrate, UI khớp dark theme hiện có |
+| P4-2 | Unit test `backend/server/auth.js` (generateToken, revokeToken, authenticate, optionalAuth) + hardening lỗi 401/403 | **dev-agent** (Backend) | P0 | ≥90% branch coverage cho auth.js, tổng test Node ≥ 50 pass |
+| P4-3 | CI: thêm job coverage + cache npm/pip, badge vào README; `make lint` phải chạy sạch; init & push GitHub repo | **devops-agent** (DevOps/CI) | P0 | CI xanh trên PR, repo public/private đã push, README có badge |
+| P4-4 | E2E smoke: submit task → worktree → merge → cleanup; test regression race condition DELETE; report bug có evidence | **qa-agent** (QA/Test) | P1 | Test script trong `tests/`, chạy `bash scripts/test.sh` pass, báo cáo bug list |
+
+### Thứ tự & phụ thuộc
+1. P4-2 và P4-3 chạy song song (không đụng file nhau: `backend/server/` vs `.github/` + `scripts/`).
+2. P4-1 độc lập, chạy song song trên worktree `wt_p4_ui`.
+3. P4-4 bắt đầu sau khi P4-1/P4-2 merge vào `main`.
+
+### Quy ước
+- Branch: `phase/4.x-<slug>`, worktree `wt_p4_<slug>`.
+- Commit: Conventional Commits (`feat:`, `fix:`, `test:`, `chore:`).
+- PR bắt buộc: mô tả what/why/how-tested + screenshot nếu chạm UI.
+- Không ai push thẳng `main`.
+
+---
+
+*Cập nhật lần cuối: 01/08/2026 — Phase 4 kickoff, phân công 4 agent*

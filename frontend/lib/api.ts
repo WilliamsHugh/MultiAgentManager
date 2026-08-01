@@ -139,6 +139,10 @@ export const api = {
     return fetchAPI<Task[]>(`/tasks${params}`);
   },
   getTask: (id: string) => fetchAPI<Task>(`/tasks/${id}`),
+  deleteTask: (id: string) =>
+    fetchAPI<{ success: boolean }>(`/tasks/${id}`, {
+      method: 'DELETE',
+    }),
   updateTaskStatus: (id: string, status: string, exitCode?: number) =>
     fetchAPI<Task>(`/tasks/${id}/status`, {
       method: 'PUT',
