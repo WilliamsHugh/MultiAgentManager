@@ -98,10 +98,19 @@ function optionalAuth(req, res, next) {
   next();
 }
 
+/**
+ * Clear the token blacklist (test helper - đảm bảo test isolation)
+ */
+function _clearBlacklist() {
+  tokenBlacklist.clear();
+}
+
 module.exports = {
   authenticate,
   optionalAuth,
   generateToken,
   revokeToken,
-  users
+  isTokenRevoked,
+  users,
+  _clearBlacklist
 };
