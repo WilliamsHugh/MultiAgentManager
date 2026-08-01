@@ -5,10 +5,15 @@ const path = require('path');
 const fs = require('fs');
 
 const TEST_DB = path.join(__dirname, '..', 'data', 'test-api.db');
-const PORT = 3099;
+// Port 0 = OS cấp cổng rảnh. KHÔNG hard-code cổng: nếu cổng bị chiếm,
+// `server.listen(PORT, resolve)` không bao giờ gọi resolve (lỗi phát ra qua
+// event 'error'), hook `before` treo vĩnh viễn và node --test báo cả file là
+// 'cancelled' sau nhiều phút. Đó chính là bug đã làm treo suite này.
+const PORT = 0;
 
 let baseUrl;
 let serverInstance;
+let ioInstance;
 
 function httpRequest(method, urlPath, body = null) {
   return new Promise((resolve, reject) => {
@@ -49,15 +54,31 @@ describe('REST API', () => {
   before(async () => {
     if (fs.existsSync(TEST_DB)) fs.unlinkSync(TEST_DB);
     process.env.DB_PATH = TEST_DB;
-    process.env.PORT = String(PORT);
-    baseUrl = `http://localhost:${PORT}`;
-    const { server } = require('../server');
+    const { server, io } = require('../server');
     serverInstance = server;
-    await new Promise((resolve) => serverInstance.listen(PORT, resolve));
+    ioInstance = io;
+    await new Promise((resolve, reject) => {
+      // Bắt 'error' để EADDRINUSE fail nhanh thay vì treo hook
+      serverInstance.once('error', reject);
+      serverInstance.listen(PORT, '127.0.0.1', () => {
+        serverInstance.removeListener('error', reject);
+        resolve();
+      });
+    });
+    baseUrl = `http://127.0.0.1:${serverInstance.address().port}`;
   });
 
-  after((done) => {
-    serverInstance.close(done);
+  after(async () => {
+    // LƯU Ý: trong node:test, tham số đầu tiên của hook là TestContext,
+    // KHÔNG phải `done`. Viết `after((done) => server.close(done))` sẽ truyền
+    // TestContext làm callback -> done thật không bao giờ chạy -> hook treo
+    // vô hạn và cả file bị 'cancelled'. Luôn dùng async/await ở đây.
+    if (ioInstance) {
+      await new Promise((resolve) => ioInstance.close(resolve));
+    }
+    if (serverInstance && serverInstance.listening) {
+      await new Promise((resolve) => serverInstance.close(resolve));
+    }
   });
 
   it('GET /api/health should return 200', async () => {
