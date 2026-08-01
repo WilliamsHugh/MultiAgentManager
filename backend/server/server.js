@@ -22,6 +22,7 @@ const { authenticate, optionalAuth, generateToken, revokeToken, users } = requir
 const fs = require('fs');
 const TaskDatabase = require('./database');
 const TaskQueue = require('./task_queue');
+const { SessionLogHub } = require('./session_log_hub');
 
 // ─── Configuration ───
 const PORT = process.env.PORT || 3001;
@@ -449,6 +450,36 @@ app.get('/api/logs/recent', (req, res) => {
   res.json(logs);
 });
 
+// ─── CLI Log Stream (T2) ───
+// Python LogStreamer POST batch event vào đây; Node giữ ring buffer 500/session
+// và broadcast vào room `session:<sessionId>`. seq giữ nguyên từ Python.
+
+const logHub = new SessionLogHub();
+
+app.post('/api/logs/stream', (req, res) => {
+  const { sessionId, events } = req.body || {};
+  if (typeof sessionId !== 'string' || !sessionId) {
+    return res.status(400).json({ error: 'sessionId (string) is required' });
+  }
+  if (!Array.isArray(events)) {
+    return res.status(400).json({ error: 'events must be an array' });
+  }
+  if (events.length > 500) {
+    return res.status(413).json({ error: 'batch too large (max 500 events)' });
+  }
+  const result = logHub.ingest(sessionId, events, io);
+  res.status(202).json({ sessionId, ...result });
+});
+
+app.get('/api/logs/session/:sessionId', (req, res) => {
+  const limit = Math.min(parseInt(req.query.limit, 10) || 500, 500);
+  res.json(logHub.history(req.params.sessionId, limit));
+});
+
+app.get('/api/logs/sessions/stats', (req, res) => {
+  res.json(logHub.stats());
+});
+
 // ─── Worktrees ───
 
 app.post('/api/worktrees',
@@ -482,6 +513,21 @@ io.on('connection', (socket) => {
   
   socket.on('leave:task', (taskId) => {
     socket.leave(`task:${taskId}`);
+  });
+
+  // Join session room để nhận CLI log stream (T2) + replay history
+  socket.on('join:session', (sessionId) => {
+    if (typeof sessionId !== 'string' || !sessionId) return;
+    socket.join(`session:${sessionId}`);
+    const history = logHub.history(sessionId);
+    socket.emit('session:history', history);
+    console.log(`  └─ Joined room: session:${sessionId} (${history.events.length} buffered)`);
+  });
+
+  socket.on('leave:session', (sessionId) => {
+    if (typeof sessionId === 'string' && sessionId) {
+      socket.leave(`session:${sessionId}`);
+    }
   });
   
   // Submit task mới (từ frontend)
