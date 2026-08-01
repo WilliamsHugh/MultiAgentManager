@@ -59,6 +59,27 @@ jobs:
           sudo apt-get install -y shellcheck
           shellcheck scripts/*.sh
 
+  cli-bridge:
+    # T4: verify the opencode/freebuff CLI bridge. The LLM smoke call is
+    # allow-failure (quota/rate-limit must not produce a fake red build):
+    # the script itself skips it unless the CLIs are installed.
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24.14.0'
+      - name: Install CLIs
+        continue-on-error: true
+        run: npm i -g opencode-ai freebuff
+      - name: Check CLI bridge (no LLM call on CI runners)
+        env:
+          NODE_VERSION: v24.14.0
+          SKIP_SMOKE: '1'
+        run: bash scripts/check_cli_bridge.sh
+
   integration:
     needs: [test-backend-core, test-backend-server, test-frontend, lint]
     runs-on: ubuntu-latest
