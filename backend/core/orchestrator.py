@@ -3,7 +3,7 @@
 Multi-Agent Orchestrator Core
 --------------------------------
 Main controller cho hệ thống Multi-Agent.
-Phối hợp freebuff (Supervisor) và opencode (Workers) 
+Phối hợp planner backend (v1: opencode) và opencode workers.
 thông qua Git Worktree isolation.
 """
 
@@ -17,7 +17,7 @@ from typing import List, Dict, Any, Optional, Callable
 sys.path.insert(0, str(Path(__file__).parent))
 
 from git_worktree_manager import GitWorktreeManager, GitWorktreeError
-from freebuff_wrapper import FreebuffWrapper, FreebuffError
+from planner_backend import PlannerBackend, PlannerError, get_planner
 from task_parser import TaskParser, Task
 
 
@@ -27,7 +27,7 @@ class Orchestrator:
     
     Quy trình:
     1. Nhận yêu cầu từ người dùng
-    2. Gọi freebuff để lập kế hoạch
+    2. Gọi planner backend (opencode) để lập kế hoạch
     3. Tạo Git Worktree cho mỗi task
     4. Phân phối task cho opencode workers (song song)
     5. Theo dõi tiến độ
@@ -38,13 +38,21 @@ class Orchestrator:
     def __init__(
         self,
         repo_path: str = ".",
-        freebuff_path: str = "freebuff",
         opencode_path: str = "opencode",
-        workers_count: int = 4
+        workers_count: int = 4,
+        planner: Optional[PlannerBackend] = None,
+        planner_name: str = "opencode"
     ):
+        """
+        Args:
+            planner: PlannerBackend tuỳ chọn (inject để test).
+            planner_name: backend mặc định khi không inject.
+                v1 = "opencode" (freebuff không có headless mode, xem
+                planner_backend.FreebuffPlanner).
+        """
         self.repo_path = Path(repo_path).resolve()
         self.git_manager = GitWorktreeManager(str(self.repo_path))
-        self.freebuff = FreebuffWrapper(freebuff_path)
+        self.planner = planner or get_planner(planner_name)
         self.opencode_path = opencode_path
         self.workers_count = workers_count
         
@@ -81,9 +89,12 @@ class Orchestrator:
         self._log("info", f"🚀 Starting Multi-Agent workflow for: {user_input}")
         
         try:
-            # Bước 1: Freebuff Planning
-            self._log("info", "📋 Step 1: Calling freebuff for planning...")
-            plan = self.freebuff.analyze_request(user_input)
+            # Bước 1: Planning (v1: opencode-only)
+            self._log(
+                "info",
+                f"📋 Step 1: Calling planner '{self.planner.name}' for planning..."
+            )
+            plan = self.planner.analyze_request(user_input)
             self.tasks = TaskParser.parse_plan(plan)
             self._log(
                 "info", 
@@ -310,7 +321,7 @@ def main():
     import argparse
     
     parser = argparse.ArgumentParser(
-        description="Multi-Agent Orchestrator - Điều phối Freebuff + Opencode"
+        description="Multi-Agent Orchestrator - planner (opencode) + opencode workers"
     )
     parser.add_argument(
         "input",
