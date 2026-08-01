@@ -16,6 +16,18 @@ Schema event (dict, sẵn sàng JSON-serialize để socket.io emit):
     {"type":"status","sessionId":str,"source":str,"taskId":str|None,
      "state":"spawned|running|exited","exitCode":int|None,"seq":int,"ts":float}
 
+PHẠM VI CỦA `seq` — ĐỌC KỸ (BUG-T5-001):
+  `seq` monotonic trong phạm vi MỘT LẦN CHẠY CLI, KHÔNG monotonic trong
+  phạm vi session. Mỗi LogStreamer.run() tạo counter mới bắt đầu từ 1
+  (xem self._seq = itertools.count(1)). Một sessionId có thể chứa NHIỀU run
+  nối tiếp, nên chuỗi seq nhìn từ session sẽ là 1,2,3,...,7,1,2,3,...
+
+  Hệ quả cho consumer: KHÔNG được dedupe bằng `seq <= lastSeq -> bỏ`.
+  Guard kiểu đó nuốt sạch mọi run thứ hai trở đi (đúng là bug BUG-T5-001).
+  Nhận biết ranh giới run bằng event `status/spawned`, hoặc bằng việc seq
+  tụt xuống nhỏ hơn seq trước đó, rồi reset bộ đếm phía consumer. Khoá React
+  phải là `(runIndex, seq)` chứ không phải riêng `seq`.
+
 Backpressure: ring buffer drop-oldest (collections.deque maxlen).
 """
 

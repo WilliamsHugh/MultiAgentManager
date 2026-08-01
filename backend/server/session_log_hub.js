@@ -9,6 +9,17 @@
  *  - GIỮ NGUYÊN `seq` từ Python, không đánh số lại.
  *  - Ring buffer 500 event/session, drop-oldest, đếm dropped.
  *  - Emit theo room `session:<sessionId>`, KHÔNG io.emit toàn cục.
+ *
+ * PHẠM VI CỦA `seq` (BUG-T5-001):
+ *   `seq` do Python cấp và monotonic trong phạm vi MỘT LẦN CHẠY CLI, KHÔNG
+ *   monotonic trong phạm vi session. Một session chứa nhiều run nối tiếp, nên
+ *   ring buffer ở đây có thể giữ nhiều event TRÙNG `seq` từ các run khác nhau
+ *   — điều đó là đúng, không phải dữ liệu hỏng. Hub cố tình không đánh số lại
+ *   và không dedupe theo `seq`.
+ *
+ *   Client KHÔNG được lọc `seq <= lastSeq`: làm vậy sẽ nuốt toàn bộ run thứ
+ *   hai trở đi. Nhận biết run mới qua event `status/spawned` (hoặc seq tụt),
+ *   và dùng khoá `(runIndex, seq)` cho React key.
  */
 
 'use strict';
