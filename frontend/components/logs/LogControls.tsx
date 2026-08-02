@@ -5,7 +5,7 @@
 import React from 'react';
 import { SearchIcon, FilterIcon, ArrowUpIcon, TrashIcon, CopyIcon } from '../common/Icons';
 
-export type LogLevel = 'all' | 'info' | 'success' | 'warn' | 'error';
+export type LogLevel = 'all' | 'debug' | 'info' | 'warn' | 'error';
 
 interface LogControlsProps {
   searchQuery: string;
@@ -22,7 +22,7 @@ interface LogControlsProps {
 const levelOptions: { value: LogLevel; label: string; color: string }[] = [
   { value: 'all', label: 'All', color: 'text-slate-400' },
   { value: 'info', label: 'Info', color: 'text-iris-400' },
-  { value: 'success', label: 'Success', color: 'text-emerald-400' },
+  { value: 'debug', label: 'Debug', color: 'text-slate-500' },
   { value: 'warn', label: 'Warn', color: 'text-amber-400' },
   { value: 'error', label: 'Error', color: 'text-red-400' },
 ];

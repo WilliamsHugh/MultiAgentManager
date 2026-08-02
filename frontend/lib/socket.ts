@@ -9,11 +9,29 @@ const SOCKET_URL = process.env.NEXT_PUBLIC_SOCKET_URL || 'http://localhost:3001'
 
 let socket: Socket | null = null;
 
+// Wire contract của session log: xem lib/sessionEvents.ts (khớp validateEvent()).
+export type {
+  SessionEvent,
+  SessionLogEvent,
+  SessionStatusEvent,
+  IndexedEvent,
+  EventLevel,
+  EventSource,
+  EventStream,
+  EventState,
+} from './sessionEvents';
+
 export interface LogEntry {
   taskId: string;
-  level: 'info' | 'error' | 'warn';
+  /** Khớp VALID_LEVELS của session_log_hub.js: debug|info|warn|error (KHÔNG có 'success'). */
+  level: 'debug' | 'info' | 'warn' | 'error';
   message: string;
   timestamp?: string;
+  /** per-run, KHÔNG per-session — xem BUG-T5-001. */
+  seq?: number;
+  ts?: number;
+  stream?: 'stdout' | 'stderr';
+  source?: 'opencode' | 'freebuff' | 'orchestrator';
 }
 
 export interface TaskEvent {

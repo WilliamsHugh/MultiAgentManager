@@ -99,20 +99,29 @@ export const FloatingWindow: React.FC<FloatingWindowProps> = ({
       >
         {/* Traffic lights */}
         <div className="flex gap-1.5 mr-1">
-          <span
+          <button
+            type="button"
             onClick={(e) => { e.stopPropagation(); onClose(state.taskId); }}
-            className="w-3 h-3 rounded-full bg-red-500/80 hover:bg-red-400 transition-colors cursor-pointer"
+            onMouseDown={(e) => e.stopPropagation()}
+            className="w-3 h-3 rounded-full bg-red-500/80 hover:bg-red-400 transition-colors cursor-pointer focus:outline-none focus-visible:ring-2 focus-visible:ring-iris-400"
             title="Close"
+            aria-label={`Close ${taskName || state.taskId}`}
           />
-          <span
+          <button
+            type="button"
             onClick={(e) => { e.stopPropagation(); onMinimize(state.taskId); }}
-            className="w-3 h-3 rounded-full bg-yellow-500/80 hover:bg-yellow-400 transition-colors cursor-pointer"
+            onMouseDown={(e) => e.stopPropagation()}
+            className="w-3 h-3 rounded-full bg-yellow-500/80 hover:bg-yellow-400 transition-colors cursor-pointer focus:outline-none focus-visible:ring-2 focus-visible:ring-iris-400"
             title="Minimize"
+            aria-label={`Minimize ${taskName || state.taskId}`}
           />
-          <span
+          <button
+            type="button"
             onClick={(e) => { e.stopPropagation(); onMaximize(state.taskId); }}
-            className="w-3 h-3 rounded-full bg-emerald-500/80 hover:bg-emerald-400 transition-colors cursor-pointer"
+            onMouseDown={(e) => e.stopPropagation()}
+            className="w-3 h-3 rounded-full bg-emerald-500/80 hover:bg-emerald-400 transition-colors cursor-pointer focus:outline-none focus-visible:ring-2 focus-visible:ring-iris-400"
             title="Maximize"
+            aria-label={`Maximize ${taskName || state.taskId}`}
           />
         </div>
 

@@ -12,9 +12,15 @@ import React from 'react';
 
 export interface LogData {
   taskId: string;
-  level: 'info' | 'success' | 'warn' | 'error';
+  /** Khớp VALID_LEVELS backend: debug|info|warn|error. 'success' đã bị bỏ. */
+  level: 'debug' | 'info' | 'warn' | 'error';
   message: string;
   timestamp?: string;
+  /** per-run, reset mỗi run (BUG-T5-001). Không dùng đơn lẻ làm React key. */
+  seq?: number;
+  runIndex?: number;
+  stream?: 'stdout' | 'stderr';
+  source?: 'opencode' | 'freebuff' | 'orchestrator';
 }
 
 interface LogEntryProps {
@@ -26,15 +32,15 @@ interface LogEntryProps {
 }
 
 const levelStyles: Record<string, { text: string; badge: string; label: string }> = {
+  debug: {
+    text: 'text-slate-500',
+    badge: 'text-slate-600',
+    label: 'DEBUG',
+  },
   info: {
     text: 'text-slate-300',
     badge: 'text-iris-400',
     label: 'INFO',
-  },
-  success: {
-    text: 'text-emerald-300',
-    badge: 'text-emerald-400',
-    label: 'SUCCESS',
   },
   warn: {
     text: 'text-amber-300',
@@ -71,8 +77,14 @@ export const LogEntry: React.FC<LogEntryProps> = ({
       {showTaskName && taskName && (
         <span className="text-iris-400/70 font-medium mr-1">[{taskName}]</span>
       )}
+      {log.source && (
+        <span className="text-slate-600 mr-1">[{log.source}]</span>
+      )}
       <span className={style.badge}>[{style.label}]</span>{' '}
-      {log.message}
+      {log.stream === 'stderr' && (
+        <span className="text-amber-500/70 mr-1" title="stderr">⟩</span>
+      )}
+      <span className="whitespace-pre-wrap break-words">{log.message}</span>
     </div>
   );
 };

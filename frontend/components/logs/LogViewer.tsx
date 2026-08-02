@@ -15,6 +15,44 @@ interface LogViewerProps {
   taskName?: string;
   showControls?: boolean;
   maxHeight?: string;
+  /** Số event bị ring buffer (500/session) của hub loại bỏ. */
+  dropped?: number;
+}
+
+/**
+ * Gán runIndex cho từng dòng log.
+ * BUG-T5-001: `seq` là per-run, KHÔNG per-session → CẤM lọc `seq <= lastSeq`.
+ * Run mới khi seq tụt (hoặc parent đã set sẵn runIndex). Dedupe chỉ TRONG 1 run.
+ */
+function withRunIndex(logs: LogData[]): Array<LogData & { runIndex: number; key: string }> {
+  const out: Array<LogData & { runIndex: number; key: string }> = [];
+  let runIndex = 0;
+  let lastSeq = -Infinity;
+  let seen = new Set<number>();
+
+  logs.forEach((log, i) => {
+    if (typeof log.seq !== 'number') {
+      // Không có seq (log legacy) → key theo index, không tham gia run grouping.
+      out.push({ ...log, runIndex: log.runIndex ?? runIndex, key: `legacy-${i}` });
+      return;
+    }
+    if (typeof log.runIndex === 'number') {
+      if (log.runIndex !== runIndex) {
+        runIndex = log.runIndex;
+        seen = new Set<number>();
+        lastSeq = -Infinity;
+      }
+    } else if (log.seq < lastSeq) {
+      runIndex += 1;
+      seen = new Set<number>();
+      lastSeq = -Infinity;
+    }
+    if (seen.has(log.seq)) return; // dedupe chỉ trong run hiện tại
+    seen.add(log.seq);
+    lastSeq = Math.max(lastSeq, log.seq);
+    out.push({ ...log, runIndex, key: `${runIndex}-${log.seq}` });
+  });
+  return out;
 }
 
 export const LogViewer: React.FC<LogViewerProps> = ({
@@ -23,6 +61,7 @@ export const LogViewer: React.FC<LogViewerProps> = ({
   taskName,
   showControls = true,
   maxHeight,
+  dropped = 0,
 }) => {
   const [searchQuery, setSearchQuery] = useState('');
   const [levelFilter, setLevelFilter] = useState<LogLevel>('all');
@@ -30,9 +69,12 @@ export const LogViewer: React.FC<LogViewerProps> = ({
   const logEndRef = useRef<HTMLDivElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
 
+  // Gán runIndex + key ổn định TRƯỚC khi filter (filter không được phá run grouping)
+  const indexedLogs = useMemo(() => withRunIndex(logs), [logs]);
+
   // Filter logs
   const filteredLogs = useMemo(() => {
-    return logs.filter((log) => {
+    return indexedLogs.filter((log) => {
       // Level filter
       if (levelFilter !== 'all' && log.level !== levelFilter) return false;
       // Search filter
@@ -41,7 +83,7 @@ export const LogViewer: React.FC<LogViewerProps> = ({
       }
       return true;
     });
-  }, [logs, levelFilter, searchQuery]);
+  }, [indexedLogs, levelFilter, searchQuery]);
 
   // Auto-scroll
   useEffect(() => {
@@ -89,22 +131,53 @@ export const LogViewer: React.FC<LogViewerProps> = ({
         />
       )}
 
+      {dropped > 0 && (
+        <div
+          role="status"
+          className="px-3 py-1.5 text-[11px] bg-amber-500/10 border-b border-amber-500/30 text-amber-300"
+        >
+          ⚠ Đã bỏ {dropped} dòng cũ (ring buffer 500 event/session)
+        </div>
+      )}
+
       <div
         ref={containerRef}
         onScroll={handleScroll}
+        role="log"
+        aria-live="polite"
+        aria-relevant="additions"
+        aria-label={taskName ? `Log của ${taskName}` : 'Log'}
         className="flex-1 overflow-y-auto p-3 font-mono text-xs leading-relaxed bg-slate-950"
         style={{ maxHeight }}
       >
         {filteredLogs.length > 0 ? (
-          filteredLogs.map((log, i) => (
-            <LogEntryComponent
-              key={i}
-              log={log}
-              taskName={taskName}
-              showTimestamp={true}
-              showTaskName={false}
-            />
-          ))
+          filteredLogs.map((log, i) => {
+            const prev = filteredLogs[i - 1];
+            const newRun = i > 0 && prev.runIndex !== log.runIndex;
+            return (
+              <React.Fragment key={log.key}>
+                {newRun && (
+                  <div className="flex items-center gap-2 my-2" role="separator">
+                    <span className="sr-only">Run {log.runIndex + 1}</span>
+                    <div className="flex-1 border-t border-slate-800" aria-hidden="true" />
+                    <span
+                      className="text-[10px] uppercase tracking-wider text-slate-500"
+                      aria-hidden="true"
+                    >
+                      Run #{log.runIndex + 1}
+                    </span>
+                    <div className="flex-1 border-t border-slate-800" aria-hidden="true" />
+                  </div>
+                )}
+                <LogEntryComponent
+                  log={log}
+                  taskName={taskName}
+                  showTimestamp={true}
+                  showTaskName={false}
+                />
+              </React.Fragment>
+            );
+          })
         ) : (
           <div className="h-full flex items-center justify-center">
             <div className="text-center">

@@ -20,6 +20,8 @@ interface CanvasProps {
   windows: WindowState[];
   tasks: Array<{ id: string; name: string; status: TaskStatus }>;
   taskLogs: Record<string, LogData[]>;
+  /** Số event bị ring buffer của hub drop, theo taskId. */
+  droppedByTask?: Record<string, number>;
   connected: boolean;
   activeTaskId: string | null;
   onDragStart: (e: React.MouseEvent, taskId: string) => void;
@@ -32,6 +34,7 @@ interface CanvasProps {
 
 export const Canvas: React.FC<CanvasProps> = ({
   backgroundContent,
+  droppedByTask,
   windows,
   tasks,
   taskLogs,
@@ -109,6 +112,7 @@ export const Canvas: React.FC<CanvasProps> = ({
               taskId={win.taskId}
               taskName={info.name}
               showControls={true}
+              dropped={droppedByTask?.[win.taskId] ?? 0}
             />
           </FloatingWindow>
         );
