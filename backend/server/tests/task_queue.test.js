@@ -1,5 +1,11 @@
 const { describe, it, before, after } = require('node:test');
 const assert = require('node:assert');
+const path = require('node:path');
+
+// Unit test KHÔNG được spawn opencode thật (agent chạy phút, treo suite).
+// Inject stub CLI qua OPENCODE_BIN trước khi require task_queue.
+process.env.OPENCODE_BIN = path.join(__dirname, 'fixtures', 'stub-cli.js');
+
 const TaskQueue = require('../task_queue');
 
 describe('TaskQueue', () => {
@@ -117,6 +123,23 @@ describe('TaskQueue', () => {
     assert.ok(prompt.includes('WORKTREE PATH: /tmp/worktree'));
     assert.ok(prompt.includes('BRANCH: feature/test'));
     assert.ok(prompt.includes('Do the thing'));
+  });
+
+  it('should embed the exact commit-message contract "[Dev<id>] <name>" in the prompt', () => {
+    const task = {
+      id: '6fe7973d-6bf2-44ee-9e2e-bcdf0be3d855',
+      name: 'Test Task',
+      description: 'A test task',
+      worktreePath: '',
+      branchName: '',
+      prompt: 'Do something'
+    };
+
+    const prompt = queue._buildPrompt(task);
+    assert.ok(
+      prompt.includes(`Please implement this task completely and commit your changes with message: "[Dev${task.id}] ${task.name}"`),
+      'prompt must carry the exact commit message the worker is expected to use'
+    );
   });
 
   it('should cancel running and queued tasks', () => {

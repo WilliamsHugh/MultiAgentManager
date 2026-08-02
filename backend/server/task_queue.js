@@ -17,6 +17,8 @@ class TaskQueue extends EventEmitter {
     this.completed = [];
     this.failed = [];
     this._cancelledIds = new Set();
+    // Cho phép inject binary khác (test dùng stub) — mặc định opencode CLI.
+    this.cliBin = options.cliBin || process.env.OPENCODE_BIN || 'opencode';
   }
 
   /**
@@ -82,7 +84,7 @@ class TaskQueue extends EventEmitter {
       });
 
       // Kiểm tra xem có opencode CLI không
-      const hasOpenCode = this._isToolAvailable('opencode');
+      const hasOpenCode = this._isToolAvailable(this.cliBin);
       
       if (hasOpenCode) {
         // Chạy worker thật
@@ -156,9 +158,14 @@ class TaskQueue extends EventEmitter {
       // Tạo prompt cho opencode
       const prompt = this._buildPrompt(task);
 
-      const worker = spawn('opencode', [prompt], {
+      // PHẢI dùng subcommand `run`: `opencode <arg>` coi arg là THƯ MỤC làm việc
+      // → prompt dài bị hiểu là path → ENAMETOOLONG / "Failed to change directory".
+      const worker = spawn(this.cliBin, ['run', prompt], {
         cwd: this._resolveWorktreePath(task),
-        env: { ...process.env }
+        env: { ...process.env },
+        // stdin PHẢI đóng: opencode giữ stdin mở và không bao giờ exit khi được
+        // spawn không TTY, làm task treo vô hạn (đã đo: >60s không close).
+        stdio: ['ignore', 'pipe', 'pipe']
       });
 
       const isNotCancelled = () => !this._cancelledIds.has(task.id);
@@ -173,7 +180,9 @@ class TaskQueue extends EventEmitter {
       worker.stderr.on('data', (data) => {
         if (!isNotCancelled()) return;
         const text = data.toString();
-        this.emit('task:log', task.id, { level: 'error', message: text.trim() });
+        // Contract đã duyệt: stderr mặc định level "warn" (CLI banner/progress
+        // đi qua stderr, không phải lỗi). Lỗi thật thể hiện qua exitCode != 0.
+        this.emit('task:log', task.id, { level: 'warn', message: text.trim() });
       });
 
       worker.on('close', (code) => {
