@@ -8,7 +8,10 @@
  * Một session chứa nhiều run nối tiếp → `seq` LẶP LẠI giữa các run.
  *  - CẤM lọc `seq <= lastSeq` (sẽ nuốt sạch run thứ 2 trở đi).
  *  - Nhận biết run mới qua `status/spawned` HOẶC `seq` tụt.
- *  - React key phải là `${runIndex}-${seq}`, không được dùng `seq` đơn lẻ.
+ *  - React key phải là `${runIndex}-${type}-${seq}`, không được dùng `seq` đơn lẻ.
+ *    Vì sao có `type`: `status` và `log` dùng CHUNG dải `seq` trong một run, nên
+ *    `${runIndex}-${seq}` vẫn va key khi một status và một log trùng seq.
+ *    (Spec ban đầu ghi `${runIndex}-${seq}` — đã được PM duyệt sửa.)
  */
 
 export type EventType = 'log' | 'status';

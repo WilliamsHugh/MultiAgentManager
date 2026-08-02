@@ -19,7 +19,7 @@ Trạng thái: **DRAFT — chờ T2 chốt schema event runtime.** Spec này bá
 Ràng buộc consumer:
 - **CẤM** lọc `seq <= lastSeq` (nuốt run thứ 2 trở đi).
 - Run mới nhận biết qua `status/spawned` (hoặc `seq` tụt) → tăng `runIndex`.
-- React key = `` `${runIndex}-${seq}` ``.
+- React key = `` `${runIndex}-${type}-${seq}` `` (`type` bắt buộc: `status` và `log` dùng chung dải `seq` trong một run → thiếu `type` sẽ va key). PM đã duyệt.
 - `stderr` mặc định `level:"warn"` — hiển thị amber, **không** phải error.
 
 ## 2. Gap hiện tại trong FE (đã xác minh bằng grep)
@@ -80,6 +80,6 @@ không nâng mức nghiêm trọng.
 ## 5. DoD cho phần implement (Dev Agent)
 - [ ] Thêm type `SessionEvent` khớp bảng §1.
 - [ ] `runIndex` derive từ `status/spawned` trong reducer, KHÔNG lọc theo seq.
-- [ ] Thay `key={i}` bằng `${runIndex}-${seq}`.
+- [ ] Thay `key={i}` bằng `${runIndex}-${type}-${seq}`.
 - [ ] Thêm `debug`, bỏ/ánh xạ `success`.
 - [ ] Render divider run + banner dropped.

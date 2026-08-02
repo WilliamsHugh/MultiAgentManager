@@ -50,7 +50,9 @@ function withRunIndex(logs: LogData[]): Array<LogData & { runIndex: number; key:
     if (seen.has(log.seq)) return; // dedupe chỉ trong run hiện tại
     seen.add(log.seq);
     lastSeq = Math.max(lastSeq, log.seq);
-    out.push({ ...log, runIndex, key: `${runIndex}-${log.seq}` });
+    // Ở đây chỉ có event type='log' (LogData), nên không cần thành phần `type`
+    // trong key như indexEvents() ở lib/sessionEvents.ts.
+    out.push({ ...log, runIndex, key: `${runIndex}-log-${log.seq}` });
   });
   return out;
 }
