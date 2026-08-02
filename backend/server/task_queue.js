@@ -155,9 +155,9 @@ class TaskQueue extends EventEmitter {
       
       // Tạo prompt cho opencode
       const prompt = this._buildPrompt(task);
-      
+
       const worker = spawn('opencode', [prompt], {
-        cwd: task.worktreePath || process.cwd(),
+        cwd: this._resolveWorktreePath(task),
         env: { ...process.env }
       });
 
@@ -190,6 +190,33 @@ class TaskQueue extends EventEmitter {
         reject(new Error(`Failed to start worker: ${err.message}`));
       });
     });
+  }
+
+  /**
+   * Giải quyết đường dẫn worktree an toàn cho worker.
+   * Nếu task.worktreePath hợp lệ (ngắn, chỉ chứa ký tự path an toàn,
+   * và là thư mục tồn tại) thì dùng; ngược lại fallback về repo root.
+   * @param {Object} task - Task info
+   * @returns {string} Đường dẫn cwd an toàn cho spawn
+   */
+  _resolveWorktreePath(task) {
+    const raw = task && task.worktreePath;
+    if (!raw || typeof raw !== 'string') return process.cwd();
+    // Chặn path quá dài (tránh ENAMETOOLONG) và ký tự nguy hiểm
+    if (raw.length > 200) return process.cwd();
+    if (/[\0\n\r\t]/.test(raw)) return process.cwd();
+    // Chỉ chấp path tương đối/an toàn, không chứa '..' thoát ra ngoài
+    if (raw.includes('..')) return process.cwd();
+    const fs = require('fs');
+    try {
+      const resolved = require('path').resolve(process.cwd(), raw);
+      if (fs.existsSync(resolved) && fs.statSync(resolved).isDirectory()) {
+        return resolved;
+      }
+    } catch {
+      // ignore, fallback below
+    }
+    return process.cwd();
   }
 
   /**
