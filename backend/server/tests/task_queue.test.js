@@ -150,3 +150,83 @@ describe('TaskQueue', () => {
     q.cancelAll();
   });
 });
+
+describe('TaskQueue._resolveWorktreePath (regression: ENAMETOOLONG)', () => {
+  const path = require('path');
+  const os = require('os');
+  const fs = require('fs');
+  let q;
+
+  before(() => { q = new TaskQueue({ maxConcurrent: 1 }); });
+  after(() => { q.cancelAll(); });
+
+  it('falls back to cwd when task is null/undefined', () => {
+    assert.strictEqual(q._resolveWorktreePath(undefined), process.cwd());
+    assert.strictEqual(q._resolveWorktreePath(null), process.cwd());
+  });
+
+  it('falls back to cwd when worktreePath is missing or empty', () => {
+    assert.strictEqual(q._resolveWorktreePath({}), process.cwd());
+    assert.strictEqual(q._resolveWorktreePath({ worktreePath: '' }), process.cwd());
+  });
+
+  it('falls back to cwd when worktreePath is not a string', () => {
+    assert.strictEqual(q._resolveWorktreePath({ worktreePath: 123 }), process.cwd());
+    assert.strictEqual(q._resolveWorktreePath({ worktreePath: { a: 1 } }), process.cwd());
+    assert.strictEqual(q._resolveWorktreePath({ worktreePath: ['/tmp'] }), process.cwd());
+  });
+
+  it('falls back to cwd when worktreePath is longer than 200 chars (prompt leaked into path)', () => {
+    const leaked = 'You are an AI developer working on a Multi-Agent project. '.repeat(10);
+    assert.ok(leaked.length > 200);
+    assert.strictEqual(q._resolveWorktreePath({ worktreePath: leaked }), process.cwd());
+    assert.strictEqual(q._resolveWorktreePath({ worktreePath: 'a'.repeat(201) }), process.cwd());
+  });
+
+  it('accepts a path of exactly 200 chars without tripping the length guard', () => {
+    // 200 chars is allowed by the guard; it just fails the existsSync check -> cwd
+    assert.strictEqual(q._resolveWorktreePath({ worktreePath: 'b'.repeat(200) }), process.cwd());
+  });
+
+  it('falls back to cwd when worktreePath contains ".."', () => {
+    assert.strictEqual(q._resolveWorktreePath({ worktreePath: '../../etc' }), process.cwd());
+    assert.strictEqual(q._resolveWorktreePath({ worktreePath: 'wt/../..' }), process.cwd());
+  });
+
+  it('falls back to cwd on control characters (\\n, \\0, \\r, \\t)', () => {
+    assert.strictEqual(q._resolveWorktreePath({ worktreePath: '/tmp/bad\npath' }), process.cwd());
+    assert.strictEqual(q._resolveWorktreePath({ worktreePath: '/tmp/bad\0path' }), process.cwd());
+    assert.strictEqual(q._resolveWorktreePath({ worktreePath: '/tmp/bad\rpath' }), process.cwd());
+    assert.strictEqual(q._resolveWorktreePath({ worktreePath: '/tmp/bad\tpath' }), process.cwd());
+  });
+
+  it('falls back to cwd when the directory does not exist', () => {
+    assert.strictEqual(
+      q._resolveWorktreePath({ worktreePath: path.join(os.tmpdir(), 'no-such-wt-' + Date.now()) }),
+      process.cwd()
+    );
+  });
+
+  it('falls back to cwd when the path exists but is a file, not a directory', () => {
+    const f = path.join(os.tmpdir(), 'wt-file-' + Date.now() + '.txt');
+    fs.writeFileSync(f, 'x');
+    try {
+      assert.strictEqual(q._resolveWorktreePath({ worktreePath: f }), process.cwd());
+    } finally { fs.unlinkSync(f); }
+  });
+
+  it('returns the resolved absolute path for a valid existing directory', () => {
+    const d = fs.mkdtempSync(path.join(os.tmpdir(), 'wt-ok-'));
+    try {
+      const got = q._resolveWorktreePath({ worktreePath: d });
+      assert.strictEqual(got, fs.realpathSync.native ? path.resolve(d) : d);
+      assert.ok(path.isAbsolute(got));
+      assert.notStrictEqual(got, process.cwd());
+    } finally { fs.rmSync(d, { recursive: true, force: true }); }
+  });
+
+  it('resolves a relative existing directory against process.cwd()', () => {
+    const got = q._resolveWorktreePath({ worktreePath: 'tests' });
+    assert.strictEqual(got, path.resolve(process.cwd(), 'tests'));
+  });
+});
