@@ -52,3 +52,6 @@ wt_*/
 
 # TS build cache
 *.tsbuildinfo
+
+# Test coverage reports
+coverage/
